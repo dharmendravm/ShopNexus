@@ -1,0 +1,121 @@
+<div class="vto-block-wrapper" 
+     id="vto-block-{{ block.id }}"
+     data-product-id="{{ product.id }}"
+     data-variant-id="{{ product.selected_or_first_available_variant.id }}"
+     data-garment-url="{% if product.featured_image %}{{ product.featured_image | image_url: width: 1024 | prepend: 'https:' }}{% endif %}"
+     data-product-title="{{ product.title | escape }}">
+  
+  <button type="button" 
+          id="vto-open-trigger" 
+          class="vto-trigger-btn" 
+          style="--vto-btn-bg: {{ block.settings.button_bg_color }}; --vto-btn-color: {{ block.settings.button_text_color }};">
+    <span class="vto-sparkle-icon">✨</span>
+    <span>{{ block.settings.button_label }}</span>
+  </button>
+</div>
+
+<!-- Modal Markup -->
+<div id="vto-modal" class="vto-modal vto-hidden" aria-hidden="true" role="dialog">
+  <div class="vto-modal-backdrop" id="vto-backdrop"></div>
+  <div class="vto-modal-dialog">
+    <button type="button" class="vto-close-btn" id="vto-close-btn" aria-label="Close modal">&times;</button>
+
+    <!-- STEP 1: Upload Photo -->
+    <div id="vto-step-upload" class="vto-step-view">
+      <div class="vto-header">
+        <h3 class="vto-title">✨ Virtual Try-On</h3>
+        <p class="vto-subtitle">See how <strong>{{ product.title }}</strong> looks on you before buying.</p>
+      </div>
+
+      <div class="vto-garment-preview-box">
+        <span class="vto-badge">Selected Garment</span>
+        <img id="vto-garment-thumb" src="{{ product.featured_image | image_url: width: 400 }}" alt="{{ product.title | escape }}" />
+      </div>
+
+      <div class="vto-dropzone" id="vto-dropzone">
+        <input type="file" id="vto-file-input" accept="image/png, image/jpeg, image/jpg, image/webp" class="vto-file-input" />
+        
+        <div id="vto-upload-placeholder" class="vto-upload-placeholder">
+          <svg class="vto-upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <p class="vto-drop-text"><strong>Click to upload</strong> or drag and drop photo</p>
+          <span class="vto-formats">JPG or PNG (max 7MB)</span>
+        </div>
+
+        <div id="vto-user-preview-box" class="vto-user-preview-box vto-hidden">
+          <img id="vto-user-preview-img" src="" alt="" />
+          <button type="button" id="vto-change-photo-btn" class="vto-change-photo-link">Change Photo</button>
+        </div>
+      </div>
+
+      <div id="vto-error-banner" class="vto-error-banner vto-hidden"></div>
+
+      <div class="vto-footer">
+        <button type="button" id="vto-generate-btn" class="vto-action-btn" disabled>
+          ✨ Generate Try-On
+        </button>
+      </div>
+    </div>
+
+    <!-- STEP 2: Loading -->
+    <div id="vto-step-loading" class="vto-step-view vto-hidden">
+      <div class="vto-loading-spinner-box">
+        <div class="vto-spinner"></div>
+      </div>
+      <h3 class="vto-loading-heading">Creating your virtual try-on...</h3>
+      <p class="vto-loading-desc">Generating a try-on of <strong>{{ product.title }}</strong>. This free model can take up to a minute.</p>
+    </div>
+
+    <!-- STEP 3: Result -->
+    <div id="vto-step-result" class="vto-step-view vto-hidden">
+      <div class="vto-header">
+        <h3 class="vto-title">✨ Your Virtual Try-On Result</h3>
+      </div>
+
+      <div class="vto-result-image-box">
+        <img id="vto-result-img" alt="Virtual Try-On Result" />
+      </div>
+
+      <div class="vto-result-actions">
+        <button type="button" id="vto-retry-btn" class="vto-secondary-action-btn">
+          Try Another Photo
+        </button>
+        <button type="button" id="vto-cart-btn" class="vto-primary-action-btn">
+          🛒 Add to Cart
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "Virtual Try-On Button",
+  "target": "section",
+  "stylesheet": "virtual-try-on.css",
+  "javascript": "virtual-try-on.js",
+  "settings": [
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Button Label",
+      "default": "Virtual Try-On"
+    },
+    {
+      "type": "color",
+      "id": "button_bg_color",
+      "label": "Button Background",
+      "default": "#4f46e5"
+    },
+    {
+      "type": "color",
+      "id": "button_text_color",
+      "label": "Button Text Color",
+      "default": "#ffffff"
+    }
+  ]
+}
+{% endschema %}

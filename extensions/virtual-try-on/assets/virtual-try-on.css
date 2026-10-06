@@ -1,0 +1,386 @@
+/* Virtual Try-On Theme App Extension Styles */
+
+.vto-block-wrapper {
+  margin: 16px 0;
+  display: block;
+}
+
+.vto-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: var(--vto-btn-bg, #4f46e5);
+  color: var(--vto-btn-color, #ffffff);
+  border: none;
+  padding: 12px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+  width: 100%;
+  max-width: 100%;
+}
+
+.vto-trigger-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35);
+  filter: brightness(1.05);
+}
+
+.vto-sparkle-icon {
+  font-size: 16px;
+}
+
+/* Modal Overlay & Dialog */
+.vto-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 999999 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.vto-modal.vto-hidden,
+.vto-step-view.vto-hidden,
+.vto-upload-placeholder.vto-hidden,
+.vto-user-preview-box.vto-hidden,
+.vto-error-banner.vto-hidden {
+  display: none !important;
+}
+
+.vto-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(6px);
+  z-index: 1;
+}
+
+.vto-modal-dialog {
+  position: relative;
+  background: #ffffff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 28px 24px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
+  z-index: 2;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #1e293b;
+}
+
+.vto-close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: #f1f5f9;
+  border: none;
+  font-size: 20px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: background 0.15s ease;
+  z-index: 10;
+}
+
+.vto-close-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+/* Step Views */
+.vto-step-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.vto-header {
+  text-align: center;
+}
+
+.vto-title {
+  margin: 0 0 6px 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.vto-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+/* Garment Preview Box */
+.vto-garment-preview-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+
+.vto-badge {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4f46e5;
+  background: #eef2ff;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+
+#vto-garment-thumb {
+  width: 54px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+}
+
+/* Dropzone */
+.vto-dropzone {
+  position: relative;
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 24px 16px;
+  text-align: center;
+  background: #fafafa;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vto-dropzone:hover, .vto-dropzone.vto-dragover {
+  border-color: #6366f1;
+  background: #f5f3ff;
+}
+
+.vto-file-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 5;
+}
+
+.vto-dropzone.vto-has-preview .vto-file-input {
+  z-index: 1;
+}
+
+.vto-upload-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.vto-upload-icon {
+  width: 36px;
+  height: 36px;
+  color: #6366f1;
+}
+
+.vto-drop-text {
+  margin: 0;
+  font-size: 14px;
+  color: #334155;
+}
+
+.vto-formats {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* User Preview Box */
+.vto-user-preview-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  z-index: 6;
+}
+
+#vto-user-preview-img {
+  max-width: 180px;
+  max-height: 200px;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.vto-change-photo-link {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #4f46e5;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 10;
+  position: relative;
+  transition: background 0.15s ease;
+}
+
+.vto-change-photo-link:hover {
+  background: #e2e8f0;
+}
+
+/* Error Banner */
+.vto-error-banner {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* Footer & Buttons */
+.vto-footer {
+  display: flex;
+  flex-direction: column;
+}
+
+.vto-action-btn, .vto-primary-action-btn {
+  background: #4f46e5;
+  color: #ffffff;
+  border: none;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.2s ease;
+}
+
+.vto-action-btn:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.vto-action-btn:not(:disabled):hover, .vto-primary-action-btn:hover {
+  background: #4338ca;
+}
+
+.vto-secondary-action-btn {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  flex: 1;
+  transition: background 0.2s ease;
+}
+
+.vto-secondary-action-btn:hover {
+  background: #e2e8f0;
+}
+
+/* Loading State */
+#vto-step-loading {
+  text-align: center;
+  padding: 32px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.vto-loading-spinner-box {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.vto-spinner {
+  width: 56px;
+  height: 56px;
+  border: 5px solid #e0e7ff;
+  border-top: 5px solid #4f46e5;
+  border-radius: 50%;
+  animation: vto-spin 0.9s linear infinite;
+}
+
+@keyframes vto-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.vto-loading-heading {
+  margin: 0 0 10px 0;
+  font-size: 19px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.vto-loading-desc {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.5;
+  max-width: 360px;
+}
+
+/* Result View */
+.vto-result-image-box {
+  width: 100%;
+  max-height: 400px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+#vto-result-img {
+  width: 100%;
+  height: auto;
+  max-height: 380px;
+  object-fit: contain;
+}
+
+.vto-result-actions {
+  display: flex;
+  gap: 12px;
+}
