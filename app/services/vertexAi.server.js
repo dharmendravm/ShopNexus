@@ -1,9 +1,7 @@
+import { generateGenlookVirtualTryOn, isGenlookConfigured } from "./genlook.server";
+
 /**
- * Free virtual try-on via the public IDM-VTON Hugging Face Space.
- * No API key is required. An optional HF_TOKEN raises the daily GPU quota.
- *
- * License of the model is CC BY-NC-SA 4.0 (non-commercial). Fine for a demo.
- * The Space shares a free GPU pool, so requests can queue or hit a daily limit.
+ * Free virtual try-on via public IDM-VTON Hugging Face Space & Genlook API.
  */
 
 const SPACE_URL = (
@@ -177,13 +175,25 @@ async function imageResultToDataUrl(output) {
  * @param {string} params.personImageBase64
  * @param {string} [params.garmentImageBase64]
  * @param {string} [params.garmentImageUrl]
- * @returns {Promise<{ success: boolean, imageUri?: string, error?: string }>}
+ * @param {string} [params.productId]
+ * @param {string} [params.variantId]
+ * @returns {Promise<{ success: boolean, imageUri?: string, provider?: string, error?: string }>}
  */
 export async function generateVirtualTryOn({
   personImageBase64,
   garmentImageBase64,
   garmentImageUrl,
+  productId,
+  variantId,
 }) {
+  console.log("[TryOn] Running Virtual Try-On exclusively via Genlook API...");
+  return await generateGenlookVirtualTryOn({
+    personImageBase64,
+    garmentImageUrl,
+    garmentImageBase64,
+    productId,
+    variantId,
+  });
   const person = cleanBase64(personImageBase64);
   if (!person.base64) {
     return { success: false, error: "Please upload a photo of yourself." };

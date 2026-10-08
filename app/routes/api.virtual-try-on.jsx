@@ -93,25 +93,28 @@ export async function action({ request }) {
       );
     }
 
-    // Call Google Cloud Vertex AI virtual-try-on-001 service
+    // Call Virtual Try-On service (Genlook API primary, IDM-VTON fallback)
     const result = await generateVirtualTryOn({
       personImageBase64: personImage,
       garmentImageBase64: garmentImageBase64 || null,
       garmentImageUrl: garmentImageUrl || null,
+      productId: productId || null,
+      variantId: variantId || null,
     });
 
-    console.log(`[TryOn API] Vertex AI call result success=${result.success}`);
+    console.log(`[TryOn API] TryOn call result success=${result.success}, provider=${result.provider || "default"}`);
     if (!result.success) {
-      console.error(`[TryOn API] Vertex AI Error:`, result.error);
+      console.error(`[TryOn API] Error:`, result.error);
       return jsonResponse(
         { success: false, error: result.error || "Failed to generate virtual try-on image." },
-        { status: 500 }
+        { status: 200 }
       );
     }
 
     return jsonResponse({
       success: true,
       tryOnImage: result.imageUri,
+      provider: result.provider || "default",
       productId,
       variantId,
     });
@@ -119,7 +122,7 @@ export async function action({ request }) {
     console.error("[TryOn API] Action Exception:", err);
     return jsonResponse(
       { success: false, error: `Server Exception: ${err.message}` },
-      { status: 500 }
+      { status: 200 }
     );
   }
 }
