@@ -1,386 +1,669 @@
-/* Virtual Try-On Theme App Extension Styles */
+/* ==========================================================================
+   Virtual Try-On Widget CSS (Lookfly Style Floating Card & Modal UI)
+   ========================================================================== */
 
-.vto-block-wrapper {
-  margin: 16px 0;
-  display: block;
+/* --------------------------------------------------------------------------
+   1. Root In-Page & Floating Trigger Buttons
+   -------------------------------------------------------------------------- */
+.vto-widget-root {
+  display: inline-block;
+  margin: 12px 0;
+  width: 100%;
 }
 
-.vto-trigger-btn {
+.vto-open-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  background-color: var(--vto-btn-bg, #4f46e5);
-  color: var(--vto-btn-color, #ffffff);
-  border: none;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
   padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  background-color: var(--vto-btn-bg, #8B2323);
+  color: var(--vto-btn-color, #ffffff);
+  font-family: inherit;
   font-size: 15px;
   font-weight: 600;
-  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease-in-out;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
-  width: 100%;
-  max-width: 100%;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(139, 35, 35, 0.25);
 }
 
-.vto-trigger-btn:hover {
+.vto-open-button:hover {
+  filter: brightness(1.1);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35);
-  filter: brightness(1.05);
+  box-shadow: 0 6px 16px rgba(139, 35, 35, 0.35);
 }
 
-.vto-sparkle-icon {
-  font-size: 16px;
+.vto-open-button:active {
+  transform: translateY(0);
 }
 
-/* Modal Overlay & Dialog */
-.vto-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 999999 !important;
-  display: flex;
+.vto-toggle-icon {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+}
+
+/* Floating Side Tab on Right Screen Edge */
+.vto-side-floating-tab {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 999990;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 10px;
+  background: #27272a;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-right: none;
+  border-radius: 12px 0 0 12px;
+  cursor: pointer;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.25);
+  transition: all 0.2s ease;
+}
+
+.vto-side-floating-tab:hover {
+  background: #18181b;
+  padding-left: 14px;
+}
+
+.vto-side-tab-text {
+  writing-mode: vertical-rl;
+  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   2. Floating Card Modal Container
+   -------------------------------------------------------------------------- */
+.vto-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 20px;
   box-sizing: border-box;
 }
 
-.vto-modal.vto-hidden,
-.vto-step-view.vto-hidden,
-.vto-upload-placeholder.vto-hidden,
-.vto-user-preview-box.vto-hidden,
-.vto-error-banner.vto-hidden {
+.vto-modal.is-hidden,
+.vto-step.is-hidden,
+.is-hidden {
   display: none !important;
 }
 
 .vto-modal-backdrop {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(15, 23, 42, 0.7);
-  backdrop-filter: blur(6px);
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   z-index: 1;
 }
 
-.vto-modal-dialog {
+.vto-card-dialog {
   position: relative;
-  background: #ffffff;
-  border-radius: 16px;
-  width: 100%;
-  max-width: 480px;
-  max-height: 90vh;
-  overflow-y: auto;
-  padding: 28px 24px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
-  box-sizing: border-box;
   z-index: 2;
+  width: 100%;
+  max-width: 370px;
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: #1e293b;
+  color: #18181b;
+  animation: vtoCardPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.vto-close-btn {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  background: #f1f5f9;
-  border: none;
-  font-size: 20px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: #64748b;
-  transition: background 0.15s ease;
-  z-index: 10;
+@keyframes vtoCardPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
-.vto-close-btn:hover {
-  background: #e2e8f0;
-  color: #0f172a;
-}
-
-/* Step Views */
-.vto-step-view {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.vto-header {
-  text-align: center;
-}
-
-.vto-title {
-  margin: 0 0 6px 0;
-  font-size: 22px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.vto-subtitle {
-  margin: 0;
-  font-size: 14px;
-  color: #64748b;
-  line-height: 1.4;
-}
-
-/* Garment Preview Box */
-.vto-garment-preview-box {
+/* Card Header */
+.vto-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 12px 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f4f4f5;
 }
 
-.vto-badge {
-  font-size: 13px;
-  font-weight: 600;
-  color: #4f46e5;
-  background: #eef2ff;
-  padding: 4px 10px;
-  border-radius: 20px;
+.vto-card-header-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #3f3f46;
 }
 
-#vto-garment-thumb {
-  width: 54px;
-  height: 54px;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid #cbd5e1;
-}
-
-/* Dropzone */
-.vto-dropzone {
-  position: relative;
-  border: 2px dashed #cbd5e1;
-  border-radius: 12px;
-  padding: 24px 16px;
-  text-align: center;
-  background: #fafafa;
-  transition: all 0.2s ease;
+.vto-card-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: #71717a;
   cursor: pointer;
-  min-height: 140px;
+  padding: 4px 8px;
+  border-radius: 50%;
+  transition: background 0.15s ease;
+}
+
+.vto-card-close-btn:hover {
+  background: #f4f4f5;
+  color: #000;
+}
+
+/* --------------------------------------------------------------------------
+   3. Step 1: Upload / Selection View
+   -------------------------------------------------------------------------- */
+.vto-step-upload {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.vto-photo-preview-container {
+  position: relative;
+  width: 100%;
+  min-height: 280px;
+  border: 2px dashed #e4e4e7;
+  border-radius: 14px;
+  background: #fafafa;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.2s ease;
 }
 
-.vto-dropzone:hover, .vto-dropzone.vto-dragover {
-  border-color: #6366f1;
-  background: #f5f3ff;
+.vto-photo-preview-container.has-preview {
+  border: none;
+  background: transparent;
+  min-height: auto;
 }
 
-.vto-file-input {
+.vto-photo-preview-container.has-preview .vto-photo-file-input {
+  display: none;
+}
+
+.vto-photo-preview-container:hover:not(.has-preview),
+.vto-photo-preview-container.is-dragover {
+  border-color: #8B2323;
+  background: #fef2f2;
+}
+
+.vto-photo-file-input {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   width: 100%;
   height: 100%;
   opacity: 0;
   cursor: pointer;
-  z-index: 5;
+  z-index: 10;
 }
 
-.vto-dropzone.vto-has-preview .vto-file-input {
-  z-index: 1;
-}
-
-.vto-upload-placeholder {
+.vto-upload-prompt {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  pointer-events: none;
+  text-align: center;
+  padding: 20px;
+  gap: 10px;
+}
+
+.vto-garment-thumb-header img {
+  width: 60px;
+  height: 75px;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+  margin-bottom: 8px;
 }
 
 .vto-upload-icon {
-  width: 36px;
-  height: 36px;
-  color: #6366f1;
+  width: 32px;
+  height: 32px;
+  color: #71717a;
 }
 
-.vto-drop-text {
+.vto-upload-main-text {
   margin: 0;
   font-size: 14px;
-  color: #334155;
+  color: #27272a;
 }
 
-.vto-formats {
+.vto-upload-sub-text {
   font-size: 12px;
-  color: #94a3b8;
+  color: #a1a1aa;
 }
 
-/* User Preview Box */
-.vto-user-preview-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  z-index: 6;
-}
-
-#vto-user-preview-img {
-  max-width: 180px;
-  max-height: 200px;
-  object-fit: contain;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.vto-change-photo-link {
-  background: #f1f5f9;
-  border: 1px solid #cbd5e1;
-  color: #4f46e5;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  z-index: 10;
+/* Photo Preview Box when image selected */
+.vto-photo-preview-box {
   position: relative;
-  transition: background 0.15s ease;
-}
-
-.vto-change-photo-link:hover {
-  background: #e2e8f0;
-}
-
-/* Error Banner */
-.vto-error-banner {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #991b1b;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 13px;
-  text-align: center;
-}
-
-/* Footer & Buttons */
-.vto-footer {
-  display: flex;
-  flex-direction: column;
-}
-
-.vto-action-btn, .vto-primary-action-btn {
-  background: #4f46e5;
-  color: #ffffff;
-  border: none;
-  padding: 14px;
-  font-size: 15px;
-  font-weight: 600;
-  border-radius: 10px;
-  cursor: pointer;
   width: 100%;
+  height: 340px;
+}
+
+.vto-photo-preview-box.is-hidden {
+  display: none;
+}
+
+.vto-customer-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 14px;
+}
+
+.vto-change-photo-pill {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: rgba(24, 24, 27, 0.85);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
   transition: background 0.2s ease;
 }
 
-.vto-action-btn:disabled {
-  background: #cbd5e1;
+.vto-change-photo-pill:hover {
+  background: rgba(0, 0, 0, 0.95);
+}
+
+.vto-error-message {
+  padding: 10px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #991b1b;
+  font-size: 13px;
+}
+
+.vto-error-message.is-hidden {
+  display: none;
+}
+
+.vto-card-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vto-primary-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 46px;
+  border: none;
+  border-radius: 24px;
+  background: #27272a;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.vto-primary-action-btn:hover:not(:disabled) {
+  background: #18181b;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.vto-primary-action-btn:disabled {
+  background: #e4e4e7;
+  color: #a1a1aa;
   cursor: not-allowed;
 }
 
-.vto-action-btn:not(:disabled):hover, .vto-primary-action-btn:hover {
-  background: #4338ca;
-}
-
-.vto-secondary-action-btn {
-  background: #f1f5f9;
-  color: #334155;
-  border: 1px solid #cbd5e1;
-  padding: 14px;
-  font-size: 14px;
-  font-weight: 600;
-  border-radius: 10px;
-  cursor: pointer;
-  flex: 1;
-  transition: background 0.2s ease;
-}
-
-.vto-secondary-action-btn:hover {
-  background: #e2e8f0;
-}
-
-/* Loading State */
-#vto-step-loading {
+.vto-powered-by {
   text-align: center;
-  padding: 32px 16px;
+  font-size: 11px;
+  color: #a1a1aa;
+
+}
+
+.vto-powered-by span {
+  font-weight: 600;
+  color: #71717a;
+}
+
+/* --------------------------------------------------------------------------
+   4. Step 2: Preparing / Loading View (Side-by-Side Comparison)
+   -------------------------------------------------------------------------- */
+.vto-step-loading {
+  padding: 24px 18px;
+  text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  gap: 16px;
 }
 
-.vto-loading-spinner-box {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.vto-spinner {
-  width: 56px;
-  height: 56px;
-  border: 5px solid #e0e7ff;
-  border-top: 5px solid #4f46e5;
-  border-radius: 50%;
-  animation: vto-spin 0.9s linear infinite;
-}
-
-@keyframes vto-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+.vto-step-loading.is-hidden {
+  display: none;
 }
 
 .vto-loading-heading {
-  margin: 0 0 10px 0;
-  font-size: 19px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.vto-loading-desc {
   margin: 0;
-  font-size: 14px;
-  color: #64748b;
-  line-height: 1.5;
-  max-width: 360px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #18181b;
 }
 
-/* Result View */
-.vto-result-image-box {
-  width: 100%;
-  max-height: 400px;
+.vto-comparison-box {
   display: flex;
-  justify-content: center;
   align-items: center;
-  overflow: hidden;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-}
-
-#vto-result-img {
-  width: 100%;
-  height: auto;
-  max-height: 380px;
-  object-fit: contain;
-}
-
-.vto-result-actions {
-  display: flex;
+  justify-content: center;
   gap: 12px;
+  margin: 8px 0;
+}
+
+.vto-comparison-item img {
+  width: 110px;
+  height: 140px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid #e4e4e7;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.vto-comparison-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #f4f4f5;
+  color: #71717a;
+}
+
+.vto-progress-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vto-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: #e4e4e7;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.vto-progress-fill {
+  height: 100%;
+  background: #27272a;
+  border-radius: 10px;
+  transition: width 0.4s ease;
+}
+
+.vto-progress-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #52525b;
+  text-align: center;
+}
+
+.vto-disclaimer-text {
+  margin: 0;
+  font-size: 11px;
+  color: #71717a;
+  line-height: 1.4;
+  padding: 0 10px;
+}
+
+/* --------------------------------------------------------------------------
+   5. Step 3: Result View
+   -------------------------------------------------------------------------- */
+.vto-step-result {
+  display: flex;
+  flex-direction: column;
+}
+
+.vto-step-result.is-hidden {
+  display: none;
+}
+
+.vto-result-viewport {
+  position: relative;
+  width: 100%;
+  height: 380px;
+  background: #000000;
+  overflow: hidden;
+}
+
+.vto-result-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vto-overlay-top-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+}
+
+.vto-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(24, 24, 27, 0.75);
+  color: #ffffff;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: all 0.2s ease;
+}
+
+.vto-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.95);
+  transform: scale(1.05);
+}
+
+.vto-garment-thumb-overlay {
+  position: absolute;
+  bottom: 50px;
+  left: 12px;
+  z-index: 10;
+  width: 46px;
+  height: 60px;
+  border-radius: 6px;
+  border: 2px solid #ffffff;
+  overflow: hidden;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.vto-garment-thumb-overlay img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vto-feedback-bar {
+  position: absolute;
+  bottom: 10px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(24, 24, 27, 0.85);
+  color: #ffffff;
+  padding: 6px 12px;
+  border-radius: 20px;
+  backdrop-filter: blur(6px);
+  font-size: 11px;
+}
+
+.vto-feedback-btn {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  transition: transform 0.15s ease;
+}
+
+.vto-feedback-btn:hover {
+  transform: scale(1.25);
+}
+
+.vto-result-footer {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #ffffff;
+}
+
+.vto-result-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vto-add-cart-btn {
+  flex: 1;
+  height: 44px;
+  border: none;
+  border-radius: 22px;
+  background: #27272a;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.vto-add-cart-btn:hover {
+  background: #000000;
+}
+
+.vto-whatsapp-btn {
+  background: #25D366 !important;
+}
+
+.vto-whatsapp-btn:hover {
+  background: #1eb956 !important;
+}
+
+.vto-try-again-link {
+  background: transparent;
+  border: none;
+  color: #52525b;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 4px;
+  text-align: center;
+}
+
+.vto-try-again-link:hover {
+  color: #000000;
+}
+
+/* --------------------------------------------------------------------------
+   6. Fullscreen Lightbox Overlay
+   -------------------------------------------------------------------------- */
+.vto-fullscreen-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9999999;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(8px);
+}
+
+.vto-fullscreen-lightbox.is-hidden {
+  display: none !important;
+}
+
+.vto-lightbox-image {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.vto-lightbox-close-btn {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  border: none;
+  font-size: 32px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.vto-lightbox-close-btn:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* Responsive adjust for mobile */
+@media (max-width: 640px) {
+  .vto-modal {
+    padding: 0;
+  }
+  .vto-card-dialog {
+    max-width: 100vw;
+    max-height: 95vh;
+    border-radius: 20px 20px 0 0;
+  }
+  .vto-photo-preview-box,
+  .vto-result-viewport {
+    height: 320px;
+  }
 }

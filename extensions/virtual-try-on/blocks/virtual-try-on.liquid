@@ -1,94 +1,229 @@
-<div class="vto-block-wrapper" 
-     id="vto-block-{{ block.id }}"
-     data-product-id="{{ product.id }}"
-     data-variant-id="{{ product.selected_or_first_available_variant.id }}"
-     data-garment-url="{% if product.featured_image %}{{ product.featured_image | image_url: width: 1024 | prepend: 'https:' }}{% endif %}"
-     data-product-title="{{ product.title | escape }}">
-  
-  <button type="button" 
-          id="vto-open-trigger" 
-          class="vto-trigger-btn" 
-          style="--vto-btn-bg: {{ block.settings.button_bg_color }}; --vto-btn-color: {{ block.settings.button_text_color }};">
-    <span class="vto-sparkle-icon">✨</span>
-    <span>{{ block.settings.button_label }}</span>
+{%- comment -%}
+  Virtual Try-On Theme App Block (Lookfly Style Premium Widget UI)
+{%- endcomment -%}
+
+{%- assign vto_block_id = block.id -%}
+{%- assign vto_variant = product.selected_or_first_available_variant -%}
+{%- assign vto_variant_id = vto_variant.id -%}
+{%- assign vto_product_title = product.title | escape -%}
+{%- assign vto_garment_category = block.settings.garment_category | default: 'tops' -%}
+{%- assign vto_garment_image = product.featured_image | image_url: width: 1024 | prepend: 'https:' -%}
+
+<div
+  class="vto-widget-root"
+  id="vto-widget-{{ vto_block_id }}"
+  data-vto-widget
+  data-vto-block-id="{{ vto_block_id }}"
+  data-vto-product-id="{{ product.id }}"
+  data-vto-variant-id="{{ vto_variant_id }}"
+  data-vto-garment-category="{{ vto_garment_category | escape }}"
+  data-vto-garment-image-url="{% if product.featured_image %}{{ vto_garment_image }}{% endif %}"
+  data-vto-product-title="{{ vto_product_title }}"
+>
+  <!-- Main In-Page Trigger Button -->
+  <button
+    type="button"
+    class="vto-open-button"
+    data-vto-open-button
+    style="--vto-btn-bg: {{ block.settings.button_bg_color }}; --vto-btn-color: {{ block.settings.button_text_color }};"
+  >
+    <span class="vto-toggle-icon" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM12 4v16c4.41 0 8-3.59 8-8s-3.59-8-8-8z"/>
+      </svg>
+    </span>
+    <span class="vto-open-button-label">{{ block.settings.button_label | escape }}</span>
   </button>
 </div>
 
-<!-- Modal Markup -->
-<div id="vto-modal" class="vto-modal vto-hidden" aria-hidden="true" role="dialog">
-  <div class="vto-modal-backdrop" id="vto-backdrop"></div>
-  <div class="vto-modal-dialog">
-    <button type="button" class="vto-close-btn" id="vto-close-btn" aria-label="Close modal">&times;</button>
+<!-- Floating Side Tab on Screen Right Edge -->
+<button
+  type="button"
+  class="vto-side-floating-tab"
+  data-vto-side-tab-id="{{ vto_block_id }}"
+  aria-label="Open Virtual Try-On"
+>
+  <span class="vto-toggle-icon">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM12 4v16c4.41 0 8-3.59 8-8s-3.59-8-8-8z"/>
+    </svg>
+  </span>
+  <span class="vto-side-tab-text">VIRTUAL TRY-ON</span>
+</button>
 
-    <!-- STEP 1: Upload Photo -->
-    <div id="vto-step-upload" class="vto-step-view">
-      <div class="vto-header">
-        <h3 class="vto-title">✨ Virtual Try-On</h3>
-        <p class="vto-subtitle">See how <strong>{{ product.title }}</strong> looks on you before buying.</p>
-      </div>
+<!-- Virtual Try-On Floating Card Modal -->
+<div
+  id="vto-modal-{{ vto_block_id }}"
+  class="vto-modal is-hidden"
+  data-vto-modal
+  data-vto-block-id="{{ vto_block_id }}"
+  aria-hidden="true"
+  role="dialog"
+  aria-modal="true"
+>
+  <div class="vto-modal-backdrop" data-vto-modal-backdrop></div>
 
-      <div class="vto-garment-preview-box">
-        <span class="vto-badge">Selected Garment</span>
-        <img id="vto-garment-thumb" src="{{ product.featured_image | image_url: width: 400 }}" alt="{{ product.title | escape }}" />
-      </div>
+  <div class="vto-card-dialog">
+    <!-- Header -->
+    <header class="vto-card-header">
+      <h3 class="vto-card-header-title">VIRTUAL TRY-ON</h3>
+      <button
+        type="button"
+        class="vto-card-close-btn"
+        data-vto-close-button
+        aria-label="Close"
+      >
+        &times;
+      </button>
+    </header>
 
-      <div class="vto-dropzone" id="vto-dropzone">
-        <input type="file" id="vto-file-input" accept="image/png, image/jpeg, image/jpg, image/webp" class="vto-file-input" />
-        
-        <div id="vto-upload-placeholder" class="vto-upload-placeholder">
+    <!-- STEP 1: Upload / Photo Selection -->
+    <div class="vto-step vto-step-upload" data-vto-step="upload">
+      <div class="vto-photo-preview-container" data-vto-photo-dropzone>
+        <input
+          type="file"
+          class="vto-photo-file-input"
+          data-vto-photo-file-input
+          accept="image/png,image/jpeg,image/jpg,image/webp"
+        />
+
+        <!-- Empty Upload Prompt -->
+        <div class="vto-upload-prompt" data-vto-photo-upload-prompt>
+          <div class="vto-garment-thumb-header">
+            <img src="{% if product.featured_image %}{{ product.featured_image | image_url: width: 300 }}{% endif %}" alt="{{ vto_product_title }}" />
+          </div>
           <svg class="vto-upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
             <line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
-          <p class="vto-drop-text"><strong>Click to upload</strong> or drag and drop photo</p>
-          <span class="vto-formats">JPG or PNG (max 7MB)</span>
+          <p class="vto-upload-main-text"><strong>Click to upload</strong> or drag photo</p>
+          <span class="vto-upload-sub-text">Upload a full body or waist-up photo</span>
         </div>
 
-        <div id="vto-user-preview-box" class="vto-user-preview-box vto-hidden">
-          <img id="vto-user-preview-img" src="" alt="" />
-          <button type="button" id="vto-change-photo-btn" class="vto-change-photo-link">Change Photo</button>
+        <!-- Photo Preview Box (shows selected photo) -->
+        <div class="vto-photo-preview-box is-hidden" data-vto-customer-photo-preview>
+          <img class="vto-customer-photo" data-vto-customer-photo-image src="" alt="Customer Photo" />
+          <button type="button" class="vto-change-photo-pill" data-vto-change-photo-button>
+            📷 Change Image
+          </button>
         </div>
       </div>
 
-      <div id="vto-error-banner" class="vto-error-banner vto-hidden"></div>
+      <div class="vto-error-message is-hidden" data-vto-error-message role="alert"></div>
 
-      <div class="vto-footer">
-        <button type="button" id="vto-generate-btn" class="vto-action-btn" disabled>
-          ✨ Generate Try-On
+      <!-- Action Button -->
+      <div class="vto-card-footer">
+        <button type="button" class="vto-primary-action-btn" data-vto-generate-button disabled>
+          <span class="vto-toggle-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM12 4v16c4.41 0 8-3.59 8-8s-3.59-8-8-8z"/>
+            </svg>
+          </span>
+          Try it on virtually
         </button>
+        <div class="vto-powered-by">Powered by <span>CleverCat</span></div>
       </div>
     </div>
 
-    <!-- STEP 2: Loading -->
-    <div id="vto-step-loading" class="vto-step-view vto-hidden">
-      <div class="vto-loading-spinner-box">
-        <div class="vto-spinner"></div>
+    <!-- STEP 2: Preparing / Loading Screen -->
+    <div class="vto-step vto-step-loading is-hidden" data-vto-step="loading">
+      <h3 class="vto-loading-heading">Preparing your look...</h3>
+
+      <!-- Side-by-side comparison box -->
+      <div class="vto-comparison-box">
+        <div class="vto-comparison-item">
+          <img src="{% if product.featured_image %}{{ product.featured_image | image_url: width: 400 }}{% endif %}" alt="Garment" />
+        </div>
+        <div class="vto-comparison-divider">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </div>
+        <div class="vto-comparison-item">
+          <img class="vto-loading-user-img" data-vto-loading-user-image src="" alt="User" />
+        </div>
       </div>
-      <h3 class="vto-loading-heading">Creating your virtual try-on...</h3>
-      <p class="vto-loading-desc">Generating a try-on of <strong>{{ product.title }}</strong>. This free model can take up to a minute.</p>
+
+      <!-- Progress Bar -->
+      <div class="vto-progress-wrapper">
+        <div class="vto-progress-bar">
+          <div class="vto-progress-fill" data-vto-progress-fill style="width: 10%;"></div>
+        </div>
+        <div class="vto-progress-text" data-vto-progress-text>10%</div>
+      </div>
+
+      <p class="vto-disclaimer-text">
+        Colors and fit shown in AI-generated previews may vary slightly from the final product.
+      </p>
+
+      <div class="vto-powered-by">Powered by <span>CleverCat</span></div>
     </div>
 
-    <!-- STEP 3: Result -->
-    <div id="vto-step-result" class="vto-step-view vto-hidden">
-      <div class="vto-header">
-        <h3 class="vto-title">✨ Your Virtual Try-On Result</h3>
+    <!-- STEP 3: Result Screen -->
+    <div class="vto-step vto-step-result is-hidden" data-vto-step="result">
+      <div class="vto-result-viewport">
+        <img class="vto-result-image" data-vto-result-image alt="Virtual Try-On Result" />
+
+        <!-- Overlay Control Icons (Top Right) -->
+        <div class="vto-overlay-top-controls">
+          <button type="button" class="vto-icon-btn vto-expand-btn" data-vto-expand-button title="Fullscreen preview">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <polyline points="9 21 3 21 3 15"></polyline>
+              <line x1="21" y1="3" x2="14" y2="10"></line>
+              <line x1="3" y1="21" x2="10" y2="14"></line>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Original Garment Thumbnail Overlay (Bottom Left) -->
+        <div class="vto-garment-thumb-overlay">
+          <img src="{% if product.featured_image %}{{ product.featured_image | image_url: width: 200 }}{% endif %}" alt="Original Garment" />
+        </div>
+
+        <!-- Feedback Pill Bar (Bottom Overlay) -->
+        <div class="vto-feedback-bar">
+          <span class="vto-feedback-label">Does this look right?</span>
+          <button type="button" class="vto-feedback-btn" data-vto-feedback="thumbs-up" title="Looks good">👍</button>
+          <button type="button" class="vto-feedback-btn" data-vto-feedback="thumbs-down" title="Needs improvement">👎</button>
+        </div>
       </div>
 
-      <div class="vto-result-image-box">
-        <img id="vto-result-img" alt="Virtual Try-On Result" />
-      </div>
-
-      <div class="vto-result-actions">
-        <button type="button" id="vto-retry-btn" class="vto-secondary-action-btn">
-          Try Another Photo
+      <!-- Action Buttons -->
+      <div class="vto-result-footer">
+        <div class="vto-result-action-row">
+          <button type="button" class="vto-add-cart-btn" data-vto-add-to-cart-button>
+            Add to Cart
+          </button>
+          <button type="button" class="vto-icon-btn vto-whatsapp-btn" data-vto-share-whatsapp title="Share on WhatsApp">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.84 9.84 0 0012.04 2zm5.82 14.16c-.24.69-1.22 1.35-1.95 1.43-.51.05-1.17.08-3.37-.82-2.81-1.16-4.63-4.03-4.77-4.22-.14-.19-1.14-1.52-1.14-2.9 0-1.38.72-2.06.98-2.34.26-.28.57-.35.76-.35.19 0 .38 0 .55.01.18.01.42-.07.66.5.24.58.82 2 .89 2.15.07.15.12.33.02.53-.1.2-.15.33-.3.5-.15.18-.32.39-.46.53-.15.15-.3.31-.13.61.17.3.76 1.25 1.63 2.03 1.12.99 2.06 1.3 2.36 1.45.3.15.48.13.66-.08.18-.21.76-.89.96-1.19.2-.3.4-.25.67-.15.27.1 1.72.81 2.01.96.3.15.5.22.57.35.07.13.07.76-.17 1.45z"/>
+            </svg>
+          </button>
+          <button type="button" class="vto-icon-btn vto-share-btn" data-vto-share-general title="Share">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3"></circle>
+              <circle cx="6" cy="12" r="3"></circle>
+              <circle cx="18" cy="19" r="3"></circle>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+            </svg>
+          </button>
+        </div>
+        <button type="button" class="vto-try-again-link" data-vto-retry-button>
+          🔄 Try with another photo
         </button>
-        <button type="button" id="vto-cart-btn" class="vto-primary-action-btn">
-          🛒 Add to Cart
-        </button>
+        <div class="vto-powered-by">Powered by <span>CleverCat</span></div>
       </div>
     </div>
   </div>
+</div>
+
+<!-- Fullscreen Lightbox Overlay for Result Image -->
+<div class="vto-fullscreen-lightbox is-hidden" data-vto-lightbox aria-hidden="true">
+  <button type="button" class="vto-lightbox-close-btn" data-vto-lightbox-close aria-label="Close fullscreen">&times;</button>
+  <img class="vto-lightbox-image" data-vto-lightbox-image src="" alt="Fullscreen Try-On Result" />
 </div>
 
 {% schema %}
@@ -101,19 +236,30 @@
     {
       "type": "text",
       "id": "button_label",
-      "label": "Button Label",
-      "default": "Virtual Try-On"
+      "label": "Button label",
+      "default": "Virtual Try On"
+    },
+    {
+      "type": "select",
+      "id": "garment_category",
+      "label": "Garment category",
+      "default": "tops",
+      "options": [
+        { "value": "tops", "label": "Tops / Tops & Kurtis" },
+        { "value": "bottoms", "label": "Bottoms / Pants / Skirts" },
+        { "value": "one-pieces", "label": "One-pieces / Dresses / Sarees" }
+      ]
     },
     {
       "type": "color",
       "id": "button_bg_color",
-      "label": "Button Background",
-      "default": "#4f46e5"
+      "label": "Button background color",
+      "default": "#8B2323"
     },
     {
       "type": "color",
       "id": "button_text_color",
-      "label": "Button Text Color",
+      "label": "Button text color",
       "default": "#ffffff"
     }
   ]
