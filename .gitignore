@@ -34,3 +34,4 @@ database.sqlite
 *.venv
 weights/
 scripts/fashn-vton-local/fashn-vton-1.5/
+.neon
