@@ -1,96 +1,45 @@
 /**
  * =============================================================================
  * FILE: app/services/fashn.server.js
- * ROLE: FASHN VTON 1.5 GPU provider (external HTTP API wrapper)
+ * ROLE: FASHN VTON provider — local free v1.5 (default) + optional cloud API
  * =============================================================================
  *
- * Yeh file kya karti hai?
- *   Hamara Shopify app server → FASHN / RunComfy-compatible GPU server ko
- *   HTTP POST bhejta hai, response se result image nikaalta hai.
+ * LOCAL FREE (default — FASHN VTON v1.5 open-source):
+ *   POST {FASHN_VM_URL}/v1/try-on
+ *   Body: { model_image, garment_image, category, num_inference_steps, num_samples }
+ *   Run local server: scripts/fashn-vton-local/server.py
  *
- * Kaun call karta hai?
- *   app/routes/api.virtual-try-on.jsx → `generateTryOn({...})`
+ * CLOUD (paid, optional):
+ *   Set FASHN_API_MODE=cloud and FASHN_VM_URL=https://api.fashn.ai
+ *   Uses /v1/run + /v1/status/{id} polling
  *
- * Provider swap karna ho (production tip):
- *   Is file jaisa naya provider banao (e.g. `otherAi.server.js`) jisme
- *   SAME return shape ho:
- *     { success: true, imageUri, provider }
- *     { success: false, error }
- *   Phir API route mein sirf import badlo — frontend change nahi chahiye.
- *
- * .env variables (production mein zaroor set karo):
- *   FASHN_VM_URL=https://your-gpu-host          (required)
- *   FASHN_API_KEY=your-secret-token             (strongly recommended)
- *   FASHN_TIMEOUT_MS=120000                     (optional, default 2 min)
- *   FASHN_NUM_INFERENCE_STEPS=30                (optional; kam = tez, zyada = quality)
- *
- * Request jo GPU ko jaata hai:
- *   POST {FASHN_VM_URL}/v1/try-on   (agar path pehle se na ho)
- *   Body:
- *     {
- *       model_image: <person dataURI/url>,
- *       garment_image: <product url>,
- *       category: "tops"|"bottoms"|"one-pieces",
- *       num_inference_steps: 30,
- *       num_samples: 1
- *     }
- *
- * Response se image kaise nikalte hain?
- *   Alag vendors alag fields use karte hain — `extractResultImageUri()`
- *   common shapes try karta hai (image_url, images[0], output, ...).
+ * .env:
+ *   FASHN_VM_URL=http://127.0.0.1:8000
+ *   FASHN_API_MODE=sync                 (local) | cloud
+ *   FASHN_API_KEY=                      (optional for local; required for cloud)
+ *   FASHN_TIMEOUT_MS=300000             (local can be slow on CPU)
+ *   FASHN_NUM_INFERENCE_STEPS=30
  * =============================================================================
  */
 
-/** @type {string} GPU server base URL ya full inference path (.env se) */
-const FASHN_VM_URL = (process.env.FASHN_VM_URL || "").trim();
-
-/** @type {string} Bearer token — production mein empty mat chhodo */
+const FASHN_VM_URL = (process.env.FASHN_VM_URL || "http://127.0.0.1:8000").trim();
 const FASHN_API_KEY = (process.env.FASHN_API_KEY || "").trim();
-
-/** @type {number} Fetch timeout ms — GPU slow ho sakta hai */
-const FASHN_TIMEOUT_MS = Number(process.env.FASHN_TIMEOUT_MS || 120_000);
-
-/** @type {number} Default diffusion / inference steps */
+const FASHN_TIMEOUT_MS = Number(process.env.FASHN_TIMEOUT_MS || 300_000);
+const FASHN_MODEL_NAME = (process.env.FASHN_MODEL_NAME || "tryon-v1.6").trim();
+const FASHN_MODE = (process.env.FASHN_MODE || "balanced").trim();
 const DEFAULT_INFERENCE_STEPS = Number(process.env.FASHN_NUM_INFERENCE_STEPS || 30);
+const POLL_INTERVAL_MS = Number(process.env.FASHN_POLL_INTERVAL_MS || 2_000);
 
-/** Allowed garment categories for this model */
-const VALID_CATEGORIES = new Set(["tops", "bottoms", "one-pieces"]);
+const VALID_CATEGORIES = new Set(["auto", "tops", "bottoms", "one-pieces"]);
 
 /**
- * FASHN GPU par virtual try-on chalao aur result image URI return karo.
- *
- * Ye function THROW nahi karti — hamesha `{ success, ... }` object deti hai.
- * Isliye API route ko try/catch provider errors ke liye alag se nahi chahiye
- * (phir bhi route pe outer try/catch unexpected crashes ke liye hai).
- *
- * Andar ka flow:
- *   1. Inputs + env validate
- *   2. Endpoint URL banao (base URL ho to `/v1/try-on` append)
- *   3. AbortController se timeout set
- *   4. POST JSON to GPU
- *   5. Response parse → image field extract
- *   6. Success / safe error return
- *
  * @param {Object} params
- * @param {string} params.userImageUrl
- *   Customer / model photo — HTTPS URL YA data URI (`data:image/...;base64,...`)
- * @param {string} params.productImageUrl
- *   Product garment photo — usually Shopify CDN HTTPS URL
- * @param {'tops'|'bottoms'|'one-pieces'} [params.category='tops']
- *   Kapde ki category — galat category = bekar fit result
+ * @param {string} params.userImageUrl - person photo (data URI or HTTPS URL)
+ * @param {string} params.productImageUrl - garment photo (HTTPS URL)
+ * @param {'tops'|'bottoms'|'one-pieces'|'auto'} [params.category='tops']
  * @param {number} [params.numInferenceSteps]
- *   Zyada steps = better quality, slow; kam = fast demo
  * @param {number} [params.numSamples=1]
- *   Kitni images generate karni hain (1 usually enough)
  * @returns {Promise<{ success: boolean, imageUri?: string, provider?: string, error?: string }>}
- *
- * @example
- *   const result = await generateTryOn({
- *     userImageUrl: "data:image/jpeg;base64,...",
- *     productImageUrl: "https://cdn.shopify.com/...",
- *     category: "tops",
- *   });
- *   if (result.success) console.log(result.imageUri);
  */
 export async function generateTryOn({
   userImageUrl,
@@ -114,28 +63,243 @@ export async function generateTryOn({
     };
   }
 
-  if (!FASHN_API_KEY) {
-    // Production warning: key empty = GPU endpoint open (agar network se reachable ho)
-    console.warn(
-      "[FASHN] FASHN_API_KEY is empty — GPU endpoint is called without Authorization",
-    );
+  const baseUrl = FASHN_VM_URL.replace(/\/$/, "");
+  const useCloudApi = shouldUseCloudApi(baseUrl);
+
+  if (useCloudApi && !FASHN_API_KEY) {
+    console.error("[FASHN] FASHN_API_KEY is required for api.fashn.ai");
+    return {
+      success: false,
+      error: "Virtual try-on is not configured (missing FASHN_API_KEY).",
+    };
   }
 
   const normalizedCategory = String(category || "tops").toLowerCase();
   const finalCategory = VALID_CATEGORIES.has(normalizedCategory)
     ? normalizedCategory
     : "tops";
-
-  // Steps/samples ko safe range mein clamp — crazy values GPU hang na kare
   const steps = clampInteger(numInferenceSteps, 1, 50, DEFAULT_INFERENCE_STEPS);
   const samples = clampInteger(numSamples, 1, 4, 1);
 
-  /**
-   * Endpoint resolve:
-   *   - Agar .env mein pehle se full path hai (/v1/... ya /deployments/...) to use as-is
-   *   - Agar sirf host diya (`http://localhost:8000`) to default `/v1/try-on` jodo
-   */
-  let endpoint = FASHN_VM_URL.replace(/\/$/, "");
+  console.log(
+    `[FASHN] mode=${useCloudApi ? "cloud" : "local-sync"} url=${baseUrl} category=${finalCategory} steps=${steps}`,
+  );
+
+  if (useCloudApi) {
+    return runCloudTryOn({
+      baseUrl,
+      userImageUrl,
+      productImageUrl,
+      category: finalCategory,
+      numSamples: samples,
+    });
+  }
+
+  return runSyncVmTryOn({
+    baseUrl,
+    userImageUrl,
+    productImageUrl,
+    category: finalCategory,
+    numInferenceSteps: steps,
+    numSamples: samples,
+  });
+}
+
+/**
+ * Official FASHN cloud: POST /v1/run then poll /v1/status/{id}.
+ */
+async function runCloudTryOn({
+  baseUrl,
+  userImageUrl,
+  productImageUrl,
+  category,
+  numSamples,
+}) {
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${FASHN_API_KEY}`,
+  };
+
+  const runEndpoint = resolveCloudRunEndpoint(baseUrl);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FASHN_TIMEOUT_MS);
+
+  try {
+    const runResponse = await fetch(runEndpoint, {
+      method: "POST",
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model_name: FASHN_MODEL_NAME,
+        inputs: {
+          model_image: userImageUrl,
+          garment_image: productImageUrl,
+          category,
+          num_samples: numSamples,
+          mode: FASHN_MODE,
+          output_format: "jpeg",
+          return_base64: true,
+        },
+      }),
+    });
+
+    const runRaw = await runResponse.text();
+    let runData = {};
+    try {
+      runData = JSON.parse(runRaw);
+    } catch {
+      runData = {};
+    }
+
+    if (!runResponse.ok) {
+      console.error(
+        `[FASHN] /v1/run status=${runResponse.status} body=${runRaw.slice(0, 240)}`,
+      );
+      return {
+        success: false,
+        error: "FASHN rejected the try-on request. Check API key and credits.",
+      };
+    }
+
+    if (runData.error && !runData.id) {
+      console.error("[FASHN] /v1/run error:", runData.error, runData.message);
+      return {
+        success: false,
+        error: "FASHN rejected the try-on request. Please try again.",
+      };
+    }
+
+    const predictionId = runData.id;
+    if (!predictionId) {
+      const syncImage = extractResultImageUri(runData);
+      if (syncImage && !isEchoOfInput(syncImage, userImageUrl, productImageUrl)) {
+        return {
+          success: true,
+          imageUri: syncImage,
+          provider: "fashn-cloud",
+        };
+      }
+      console.error("[FASHN] /v1/run missing prediction id:", Object.keys(runData));
+      return {
+        success: false,
+        error: "FASHN did not return a prediction id.",
+      };
+    }
+
+    const apiRoot = baseUrl.replace(/\/v1\/?$/, "");
+    const statusEndpoint = `${apiRoot}/v1/status/${predictionId}`;
+    const deadline = Date.now() + FASHN_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+      if (controller.signal.aborted) {
+        return {
+          success: false,
+          error: "FASHN request timed out. Please try again in a moment.",
+        };
+      }
+
+      await sleep(POLL_INTERVAL_MS, controller.signal);
+
+      const statusResponse = await fetch(statusEndpoint, {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+      });
+
+      const statusRaw = await statusResponse.text();
+      let statusData = {};
+      try {
+        statusData = JSON.parse(statusRaw);
+      } catch {
+        statusData = {};
+      }
+
+      if (!statusResponse.ok) {
+        console.error(
+          `[FASHN] /v1/status status=${statusResponse.status} body=${statusRaw.slice(0, 240)}`,
+        );
+        return {
+          success: false,
+          error: "FASHN status check failed. Please try again.",
+        };
+      }
+
+      const status = String(statusData.status || "").toLowerCase();
+
+      if (status === "completed") {
+        const resultImage = extractResultImageUri(statusData);
+        if (!resultImage) {
+          console.error("[FASHN] completed but no output:", Object.keys(statusData));
+          return {
+            success: false,
+            error: "FASHN completed without a generated image.",
+          };
+        }
+        if (isEchoOfInput(resultImage, userImageUrl, productImageUrl)) {
+          console.error("[FASHN] Provider echoed input image — refusing fake result");
+          return {
+            success: false,
+            error:
+              "Virtual try-on returned the original photo instead of a result. Check your local GPU server.",
+          };
+        }
+        return {
+          success: true,
+          imageUri: resultImage,
+          provider: `fashn-${FASHN_MODEL_NAME}`,
+        };
+      }
+
+      if (status === "failed") {
+        const errMsg =
+          statusData.error?.message ||
+          statusData.error?.name ||
+          statusData.message ||
+          "generation failed";
+        console.error("[FASHN] prediction failed:", errMsg);
+        return {
+          success: false,
+          error: `FASHN try-on failed: ${errMsg}`,
+        };
+      }
+
+      console.log(`[FASHN] prediction=${predictionId} status=${status || "unknown"}`);
+    }
+
+    return {
+      success: false,
+      error: "FASHN request timed out. Please try again in a moment.",
+    };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      console.error(`[FASHN] Timed out after ${FASHN_TIMEOUT_MS}ms`);
+      return {
+        success: false,
+        error: "FASHN request timed out. Please try again in a moment.",
+      };
+    }
+    console.error("[FASHN] Provider exception:", error);
+    return {
+      success: false,
+      error: "Virtual try-on failed while contacting FASHN.",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Local free FASHN VTON v1.5 (or compatible sync GPU): POST /v1/try-on
+ */
+async function runSyncVmTryOn({
+  baseUrl,
+  userImageUrl,
+  productImageUrl,
+  category,
+  numInferenceSteps,
+  numSamples,
+}) {
+  let endpoint = baseUrl;
   if (
     !endpoint.includes("/v1/") &&
     !endpoint.includes("/deployments/") &&
@@ -144,7 +308,6 @@ export async function generateTryOn({
     endpoint = `${endpoint}/v1/try-on`;
   }
 
-  // Timeout: request forever hang na kare (Node process busy na rahe)
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FASHN_TIMEOUT_MS);
 
@@ -158,30 +321,30 @@ export async function generateTryOn({
       method: "POST",
       headers,
       body: JSON.stringify({
-        model_image: userImageUrl, // person wearing the clothes
-        garment_image: productImageUrl, // clothing item photo
-        category: finalCategory,
-        num_inference_steps: steps,
-        num_samples: samples,
+        model_image: userImageUrl,
+        garment_image: productImageUrl,
+        category,
+        num_inference_steps: numInferenceSteps,
+        num_timesteps: numInferenceSteps,
+        num_samples: numSamples,
+        garment_photo_type: "auto",
       }),
       signal: controller.signal,
     });
 
     const rawText = await response.text();
-    let data;
+    let data = {};
     try {
       data = JSON.parse(rawText);
     } catch {
-      // GPU ne HTML/text bheja — JSON nahi; neeche generic error
       data = {};
     }
 
     if (!response.ok) {
-      // Raw body sirf server logs — client ko mat bhejo (info leak)
-      console.error(`[FASHN] GPU status=${response.status} body=${rawText.slice(0, 240)}`);
+      console.error(`[FASHN] local GPU status=${response.status} body=${rawText.slice(0, 240)}`);
       return {
         success: false,
-        error: "FASHN GPU server rejected the try-on request. Please try again.",
+        error: "FASHN local GPU rejected the try-on request. Is the VTON server running?",
       };
     }
 
@@ -190,52 +353,62 @@ export async function generateTryOn({
       console.error("[FASHN] Response missing image field:", Object.keys(data || {}));
       return {
         success: false,
-        error: "FASHN GPU server response did not include a generated image.",
+        error: "FASHN local GPU response did not include a generated image.",
+      };
+    }
+
+    if (isEchoOfInput(resultImage, userImageUrl, productImageUrl)) {
+      console.error(
+        "[FASHN] Local server echoed input image — stop the mock_gpu_server and run scripts/fashn-vton-local/server.py",
+      );
+      return {
+        success: false,
+        error:
+          "Virtual try-on mock detected (returned your upload unchanged). Start the real local VTON server: scripts/fashn-vton-local/server.py",
       };
     }
 
     return {
       success: true,
       imageUri: resultImage,
-      provider: "fashn-vton-1.5",
+      provider: "fashn-vton-1.5-local",
     };
   } catch (error) {
     if (error?.name === "AbortError") {
       console.error(`[FASHN] Timed out after ${FASHN_TIMEOUT_MS}ms`);
       return {
         success: false,
-        error: "FASHN GPU server request timed out. Please try again in a moment.",
+        error: "FASHN local GPU timed out. Try fewer steps or a CUDA GPU.",
       };
     }
-
     console.error("[FASHN] Provider exception:", error);
     return {
       success: false,
-      error: "Virtual try-on failed while contacting the GPU service.",
+      error:
+        "Virtual try-on could not reach the local GPU. Start scripts/fashn-vton-local/server.py on FASHN_VM_URL.",
     };
   } finally {
-    // Memory leak / dangling timer avoid
     clearTimeout(timer);
   }
 }
 
 /**
- * GPU JSON response se pehli valid image URL / data URI nikaalo.
- *
- * Kyun itne shapes?
- *   Custom VM, RunComfy, alag wrappers — har kisi ka response thoda alag hota hai.
- *   Production mein naya provider aaye to yahan naya field add kar dena.
- *
- * Supported shapes:
- *   - { image_url: "..." }
- *   - { result_url: "..." }
- *   - { image: "..." }
- *   - { images: ["..."] } ya { images: [{ url: "..." }] }
- *   - { output: "..." } ya { output: ["..."] }
- *
- * @param {unknown} data - `JSON.parse` ke baad ka object
- * @returns {string|null} image URI, ya null agar kuch na mile
+ * Cloud only when explicitly requested or URL is api.fashn.ai.
+ * Localhost / custom hosts default to sync (local free VTON 1.5).
  */
+function shouldUseCloudApi(baseUrl) {
+  const mode = (process.env.FASHN_API_MODE || "").trim().toLowerCase();
+  if (mode === "cloud") return true;
+  if (mode === "sync" || mode === "local") return false;
+  return /api\.fashn\.ai/i.test(baseUrl);
+}
+
+function resolveCloudRunEndpoint(baseUrl) {
+  if (/\/v1\/run\/?$/i.test(baseUrl)) return baseUrl;
+  if (/\/v1\/?$/i.test(baseUrl)) return `${baseUrl.replace(/\/$/, "")}/run`;
+  return `${baseUrl.replace(/\/$/, "")}/v1/run`;
+}
+
 function extractResultImageUri(data) {
   if (!data || typeof data !== "object") return null;
 
@@ -265,22 +438,32 @@ function extractResultImageUri(data) {
   return null;
 }
 
-/**
- * Number ko min..max range mein rakho.
- * Invalid / NaN aaye to `fallback` use karo.
- *
- * @param {unknown} value - jo number aaya (env / args se)
- * @param {number} min - minimum allowed
- * @param {number} max - maximum allowed
- * @param {number} fallback - agar value invalid ho
- * @returns {number} clamped integer
- *
- * @example
- *   clampInteger(999, 1, 50, 30) // → 50
- *   clampInteger("abc", 1, 50, 30) // → 30
- */
+/** Reject mock servers that echo model_image / garment_image as the "result". */
+function isEchoOfInput(resultImage, userImageUrl, productImageUrl) {
+  if (!resultImage || typeof resultImage !== "string") return false;
+  const result = resultImage.trim();
+  if (userImageUrl && result === String(userImageUrl).trim()) return true;
+  if (productImageUrl && result === String(productImageUrl).trim()) return true;
+  return false;
+}
+
 function clampInteger(value, min, max, fallback) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+      return;
+    }
+    const id = setTimeout(resolve, ms);
+    const onAbort = () => {
+      clearTimeout(id);
+      reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }

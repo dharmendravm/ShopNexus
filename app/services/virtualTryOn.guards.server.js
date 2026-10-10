@@ -81,6 +81,7 @@ const ALLOWED_GARMENT_HOST_SUFFIXES = [
   "cdn.shopifycdn.net",
   "shopifycdn.com",
   "shopify.com",
+  "myshopify.com",
 ];
 
 /**
@@ -351,7 +352,7 @@ export function toPublicErrorMessage(
     message.startsWith("Please ") ||
     message.startsWith("Product image") ||
     message.startsWith("Customer photo") ||
-    message.startsWith("FASHN GPU") ||
+    message.startsWith("FASHN") ||
     message.startsWith("Virtual try-on")
   ) {
     return message;

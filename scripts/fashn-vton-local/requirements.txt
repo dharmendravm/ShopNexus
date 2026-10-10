@@ -1,0 +1,7 @@
+# Install fashn-vton from the official repo first:
+#   pip install -e /path/to/fashn-vton-1.5
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pillow>=10.0.0
+httpx>=0.27.0
+python-multipart>=0.0.9

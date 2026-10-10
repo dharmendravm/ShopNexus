@@ -46,11 +46,22 @@ model Product {
 
 model VirtualTryOn {
   id                  String   @id @default(uuid())
+  requestId           String?  @unique
   shop                String?
   productId           String?
   variantId           String?
+  garmentCategory     String?  @default("tops")
+  garmentImageUrl     String?  @db.Text
+  personImageHash     String?
   generatedImageUrl   String?  @db.Text
-  status              String   @default("COMPLETED")
+  status              String   @default("PENDING")
+  error               String?  @db.Text
   createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([shop, personImageHash])
+  @@index([createdAt])
+  @@index([status])
 }
+
 

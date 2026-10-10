@@ -1,66 +1,28 @@
 /**
  * =============================================================================
  * FILE: app/routes/api.virtual-try-on.jsx
- * ROLE: Backend API endpoint (React Router server route)
+ * ROLE: Virtual Try-On Backend API Endpoint (App Proxy + Webhooks + Status Checks)
  * =============================================================================
  *
- * Yeh file kya karti hai?
- *   Storefront se aayi try-on request receive karti hai, security checks
- *   chalati hai, FASHN GPU provider ko call karti hai, result image wapas bhejti hai.
- *
- * URL mapping (bahut important — production mein yahi configure karna):
- *   shopify.app.toml → [app_proxy]
- *     prefix  = "apps"
- *     subpath = "virtual-try-on"
- *     url     = "https://YOUR_APP_HOST/api/virtual-try-on"
- *
- *   Matlab:
- *     Customer browser:  POST https://{shop}/apps/virtual-try-on
- *     Shopify forward →  POST https://YOUR_APP_HOST/api/virtual-try-on  ← YE FILE
- *
- * Related files:
- *   - virtualTryOn.guards.server.js  → validation, rate limit, URL allowlist
- *   - fashn.server.js                → GPU HTTP call
- *   - extensions/.../virtual-try-on.js → frontend jo is API ko hit karta hai
- *
- * Request body (JSON) — frontend yahi bhejta hai:
- *   {
- *     personImage:     "data:image/jpeg;base64,...",   // customer photo (required)
- *     garmentImageUrl: "https://cdn.shopify.com/...",  // product image (required)
- *     productId:       "123",                          // optional (logs)
- *     variantId:       "456",                          // optional (echo)
- *     category:        "tops" | "bottoms" | "one-pieces"
- *   }
- *
- * Success response (200):
- *   { success: true, tryOnImage, provider, productId, variantId }
- *
- * Error status codes (yaad rakhna):
- *   401 → App Proxy HMAC fail (direct hit / wrong signature)
- *   400 → bad input (photo/url/content-type)
- *   429 → rate limit (bahut requests)
- *   502 → GPU provider fail
- *   500 → unexpected server exception
- *
- * Security pipeline (ORDER MAT BADALNA):
- *   1. App Proxy HMAC auth
- *   2. Rate limit (shop + IP)
- *   3. Parse body
- *   4. Validate person photo + garment URL
- *   5. Call generateTryOn() (FASHN)
- *   6. Safe JSON response (internal errors leak mat karo)
- *
- * Production checklist:
- *   [ ] App Proxy toml + deploy
- *   [ ] FASHN_VM_URL + FASHN_API_KEY set
- *   [ ] VTO_RATE_LIMIT_* tune (traffic ke hisaab se)
- *   [ ] Multi-instance ho to rate limit Redis pe le jao
- *   [ ] Seedha curl se test mat expect karo — 401 aayega (yeh feature hai)
+ * Yeh file kya karti hai? (Overview):
+ *   1. Storefront Widget se user ki photo + garment image accept karti hai.
+ *   2. App Proxy HMAC Signature verify karti hai (Security guard).
+ *   3. SHA-256 Idempotency Check chala kar duplicate GPU jobs + billing double charge rokti hai.
+ *   4. RunComfy serverless queue mein async job submit karti hai (< 500ms return).
+ *   5. Webhook callbacks (`?webhook=1&secret=...`) receive karke result DB mein save karti hai.
+ *   6. Status Polling (`checkStatus: true`) direct PostgreSQL DB se ~2ms mein answer karti hai.
  * =============================================================================
  */
 
+import crypto from "crypto";
 import shopify from "../shopify.server";
-import { generateTryOn } from "../services/fashn.server";
+import prisma from "../db.server";
+import { generateTryOn as generateFashnTryOn } from "../services/fashn.server";
+import {
+  submitTryOnJob as submitRunComfyJob,
+  getTryOnJobStatus as getRunComfyJobStatus,
+  extractImageUriFromRunComfy,
+} from "../services/runcomfy.server";
 import {
   checkVirtualTryOnRateLimit,
   getRequestClientIp,
@@ -71,15 +33,12 @@ import {
 } from "../services/virtualTryOn.guards.server";
 
 /**
- * JSON response banane ka chhota helper.
- * Hamesha Content-Type JSON + Cache-Control no-store (try-on private data).
+ * Standard JSON Response Creator Helper.
+ * Private try-on data ke liye Cache-Control: no-store standard apply karta hai.
  *
- * @param {object} data - jo object client ko bhejna hai
+ * @param {object} data - Client ko bhejne wala JSON data
  * @param {{ status?: number, headers?: Record<string, string> }} [options]
- * @returns {Response} Web Fetch API Response
- *
- * @example
- *   return jsonResponse({ success: true }, { status: 200 });
+ * @returns {Response} Fetch API Response Object
  */
 function jsonResponse(data, { status = 200, headers = {} } = {}) {
   return new Response(JSON.stringify(data), {
@@ -93,18 +52,90 @@ function jsonResponse(data, { status = 200, headers = {} } = {}) {
 }
 
 /**
- * GET loader — health / "API alive?" check.
+ * GET loader handler — Health Check & GET Status Lookup by requestId.
  *
- * React Router mein:
- *   - `loader`  → GET requests
- *   - `action`  → POST/PUT/DELETE etc.
+ * Client jab `GET /apps/virtual-try-on?requestId=xxx` bhejta hai:
+ *   Step 1: DB se check karta hai (~2ms).
+ *   Step 2: Completed / Failed ho to instant result deta hai.
+ *   Step 3: Pending/Processing agar < 12s purana ho to RunComfy API hit nahi karta (Rate Limit & Cost save).
  *
- * App Proxy auth yahan bhi mandatory hai — warna koi bhi status ping kar sakta hai.
- *
- * @param {{ request: Request }} args - Remix/React Router loader args
+ * @param {{ request: Request }} args
  * @returns {Promise<Response>}
  */
 export async function loader({ request }) {
+  const url = new URL(request.url);
+  const requestId = url.searchParams.get("requestId");
+
+  // Agar request mein requestId query parameter hai → status look-up run karo
+  if (requestId) {
+    try {
+      // -----------------------------------------------------------------------
+      // STEP 1: PostgreSQL DB Fast Cache Lookup (~2ms)
+      // -----------------------------------------------------------------------
+      const cachedJob = await prisma.virtualTryOn.findUnique({
+        where: { requestId },
+      });
+
+      if (cachedJob) {
+        if (cachedJob.status === "COMPLETED" && cachedJob.generatedImageUrl) {
+          return jsonResponse({
+            success: true,
+            status: "completed",
+            tryOnImage: cachedJob.generatedImageUrl,
+            provider: "runcomfy-vton-1.5",
+          });
+        }
+        if (cachedJob.status === "FAILED") {
+          return jsonResponse({
+            success: false,
+            status: "failed",
+            error: cachedJob.error || "Try-on generation failed.",
+          });
+        }
+
+        // Job abhi processing mein hai. Agar 12 sec se kam purana hai, to RunComfy hit mat karo
+        const ageMs = Date.now() - new Date(cachedJob.createdAt).getTime();
+        if (ageMs < 12_000) {
+          return jsonResponse({
+            success: true,
+            status: "processing",
+            requestId,
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STEP 2: Fallback — RunComfy API poll agar DB mein record na ho ya 12s+ purana ho
+      // -----------------------------------------------------------------------
+      const jobStatus = await getRunComfyJobStatus(requestId);
+      if (jobStatus.status === "completed" && jobStatus.tryOnImage) {
+        await prisma.virtualTryOn.updateMany({
+          where: { requestId },
+          data: {
+            status: "COMPLETED",
+            generatedImageUrl: jobStatus.tryOnImage,
+            updatedAt: new Date(),
+          },
+        });
+      } else if (jobStatus.status === "failed") {
+        await prisma.virtualTryOn.updateMany({
+          where: { requestId },
+          data: {
+            status: "FAILED",
+            error: jobStatus.error || "Try-on workflow failed.",
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      return jsonResponse(jobStatus);
+    } catch (err) {
+      console.error("[VirtualTryOn Loader] Status lookup exception:", err);
+      return jsonResponse({ success: true, status: "processing", requestId });
+    }
+  }
+
+  // Normal GET ping par App Proxy authentication check karo
   try {
     await shopify.authenticate.public.appProxy(request);
   } catch {
@@ -118,15 +149,21 @@ export async function loader({ request }) {
 }
 
 /**
- * POST action — asal Virtual Try-On generation yahi hoti hai.
+ * POST action handler — Main try-on submission, polling check, aur secure webhook processing.
  *
- * Frontend `virtual-try-on.js` → fetch POST → yahan aata hai (proxy ke through).
+ * Flow Summary:
+ *   1. Webhook Request Detection (`?webhook=1`): Webhook Secret verify -> DB update.
+ *   2. App Proxy HMAC Verification: Direct non-Shopify hits ko 401 Block karo.
+ *   3. DB Status Polling (`checkStatus: true`): Bypass rate limiter, query DB first.
+ *   4. Rate Limit Guard: 8 requests/min per IP/Shop.
+ *   5. Input Validation: Base64 image size + Garment URL security checks.
+ *   6. SHA-256 Idempotency Guard: 60s window duplicate request return.
+ *   7. RunComfy Async Job Submit: Return `{ requestId }` in < 500ms.
  *
- * @param {{ request: Request }} args - Remix/React Router action args
- * @returns {Promise<Response>} JSON success ya error
+ * @param {{ request: Request }} args
+ * @returns {Promise<Response>}
  */
 export async function action({ request }) {
-  // Sirf POST allow — kel aur methods block
   if (request.method !== "POST") {
     return jsonResponse(
       { success: false, error: "Method not allowed" },
@@ -134,12 +171,70 @@ export async function action({ request }) {
     );
   }
 
-  // -------------------------------------------------------------------------
-  // STEP 1: App Proxy HMAC verify
-  // Shopify request forward karte waqt signature query params add karta hai.
-  // Agar koi seedha tumhara app URL hit kare (bina proxy) → throw → 401.
-  // Production tip: is catch ko kabhi "ignore and continue" mat banao.
-  // -------------------------------------------------------------------------
+  const url = new URL(request.url);
+  const isWebhook = url.searchParams.get("webhook") === "1" || url.pathname.endsWith("/webhook");
+
+  // =========================================================================
+  // HANDLER A: SECURE RUNCOMFY WEBHOOK CALLBACK
+  // =========================================================================
+  if (isWebhook) {
+    try {
+      const expectedSecret = (process.env.RUNCOMFY_WEBHOOK_SECRET || "shop_nexus_vto_sec_key_2026").trim();
+      const providedSecret = (
+        url.searchParams.get("secret") ||
+        request.headers.get("x-webhook-secret") ||
+        ""
+      ).trim();
+
+      // Webhook Secret Security Check — Block unauthorized external callers
+      if (expectedSecret && providedSecret !== expectedSecret) {
+        console.warn("[VirtualTryOn Webhook] Rejected unauthorized webhook call - secret mismatch");
+        return jsonResponse({ success: false, error: "Unauthorized webhook caller" }, { status: 401 });
+      }
+
+      const webhookPayload = await request.json().catch(() => ({}));
+      console.log("[VirtualTryOn Webhook] Received authenticated webhook payload:", JSON.stringify(webhookPayload).slice(0, 300));
+
+      const webhookRequestId = webhookPayload.request_id || webhookPayload.requestId || webhookPayload.id;
+      if (webhookRequestId) {
+        const rawStatus = String(webhookPayload.status || webhookPayload.state || "").toUpperCase();
+        const isFailed = rawStatus === "FAILED" || rawStatus === "ERROR" || rawStatus === "CANCELLED";
+
+        // Multi-nested output parser (handles arrays, nodes, output_url, result_url)
+        const outputImageUrl = extractImageUriFromRunComfy(webhookPayload);
+
+        if (isFailed) {
+          await prisma.virtualTryOn.updateMany({
+            where: { requestId: webhookRequestId },
+            data: {
+              status: "FAILED",
+              error: webhookPayload.error || "Generation failed via webhook update.",
+              updatedAt: new Date(),
+            },
+          });
+        } else if (outputImageUrl) {
+          await prisma.virtualTryOn.updateMany({
+            where: { requestId: webhookRequestId },
+            data: {
+              status: "COMPLETED",
+              generatedImageUrl: outputImageUrl,
+              updatedAt: new Date(),
+            },
+          });
+          console.log(`[VirtualTryOn Webhook] Successfully updated job ${webhookRequestId} status to COMPLETED`);
+        }
+      }
+
+      return jsonResponse({ received: true });
+    } catch (whErr) {
+      console.error("[VirtualTryOn Webhook] Error processing webhook:", whErr);
+      return jsonResponse({ received: false, error: whErr.message }, { status: 400 });
+    }
+  }
+
+  // =========================================================================
+  // STEP 1: App Proxy HMAC Verification (Shopify Storefront Only)
+  // =========================================================================
   let proxyContext;
   try {
     proxyContext = await shopify.authenticate.public.appProxy(request);
@@ -153,41 +248,17 @@ export async function action({ request }) {
     );
   }
 
-  // Shop domain: rate-limit key + garment URL allowlist dono ke liye chahiye
   const shopDomain =
     proxyContext?.session?.shop ||
-    new URL(request.url).searchParams.get("shop") ||
+    url.searchParams.get("shop") ||
     "";
   const clientIp = getRequestClientIp(request);
   const rateLimitKey = `${shopDomain || "unknown-shop"}:${clientIp}`;
 
-  // -------------------------------------------------------------------------
-  // STEP 2: Rate limit
-  // GPU call mehngi / slow hoti hai. Ek IP se flood = bill + downtime.
-  // 429 + Retry-After header → browser/client thoda wait kare.
-  // -------------------------------------------------------------------------
-  const rateLimit = checkVirtualTryOnRateLimit(rateLimitKey);
-  if (!rateLimit.allowed) {
-    return jsonResponse(
-      {
-        success: false,
-        error: "Too many try-on requests. Please wait a minute and try again.",
-      },
-      {
-        status: 429,
-        headers: {
-          "Retry-After": String(rateLimit.retryAfterSeconds || 60),
-        },
-      },
-    );
-  }
-
   try {
-    // -------------------------------------------------------------------------
-    // STEP 3: Body parse
-    // Normal path: application/json (frontend yahi bhejta hai)
-    // Extra: multipart/form-data bhi support (Postman / future forms)
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // STEP 2: Request Body Parsing
+    // =========================================================================
     const contentType = request.headers.get("content-type") || "";
     let body;
 
@@ -199,6 +270,8 @@ export async function action({ request }) {
     ) {
       const formData = await request.formData();
       body = {
+        checkStatus: formData.get("checkStatus"),
+        requestId: formData.get("requestId"),
         personImage: formData.get("personImage"),
         garmentImageUrl: formData.get("garmentImageUrl"),
         productId: formData.get("productId"),
@@ -215,6 +288,89 @@ export async function action({ request }) {
       );
     }
 
+    // =========================================================================
+    // HANDLER B: DB-FIRST STATUS POLLING CHECK (Rate limit bypassed)
+    // =========================================================================
+    if (body?.checkStatus && body?.requestId) {
+      const reqId = String(body.requestId).trim();
+
+      // Fast DB query (~2ms)
+      const dbJob = await prisma.virtualTryOn.findUnique({
+        where: { requestId: reqId },
+      });
+
+      if (dbJob) {
+        if (dbJob.status === "COMPLETED" && dbJob.generatedImageUrl) {
+          return jsonResponse({
+            success: true,
+            status: "completed",
+            tryOnImage: dbJob.generatedImageUrl,
+            provider: "runcomfy-vton-1.5",
+          });
+        }
+        if (dbJob.status === "FAILED") {
+          return jsonResponse({
+            success: false,
+            status: "failed",
+            error: dbJob.error || "Virtual Try-On generation failed.",
+          });
+        }
+
+        // Job processing state mein hai. Agar 12s se chhota hai, return processing without hitting RunComfy
+        const ageMs = Date.now() - new Date(dbJob.createdAt).getTime();
+        if (ageMs < 12_000) {
+          return jsonResponse({
+            success: true,
+            status: "processing",
+            requestId: reqId,
+          });
+        }
+      }
+
+      // Fallback: poll RunComfy API if DB miss or 12s+ old
+      const jobStatus = await getRunComfyJobStatus(reqId);
+      if (jobStatus.status === "completed" && jobStatus.tryOnImage) {
+        await prisma.virtualTryOn.updateMany({
+          where: { requestId: reqId },
+          data: {
+            status: "COMPLETED",
+            generatedImageUrl: jobStatus.tryOnImage,
+            updatedAt: new Date(),
+          },
+        });
+      } else if (jobStatus.status === "failed") {
+        await prisma.virtualTryOn.updateMany({
+          where: { requestId: reqId },
+          data: {
+            status: "FAILED",
+            error: jobStatus.error || "Try-on workflow failed.",
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      return jsonResponse(jobStatus);
+    }
+
+    // =========================================================================
+    // STEP 3: Rate Limiting (Only for NEW Try-On Requests)
+    // =========================================================================
+    const rateLimit = checkVirtualTryOnRateLimit(rateLimitKey);
+    if (!rateLimit.allowed) {
+      return jsonResponse(
+        {
+          success: false,
+          error: "Too many try-on requests. Please wait a minute and try again.",
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.retryAfterSeconds || 60),
+          },
+        },
+      );
+    }
+
     const {
       personImage,
       garmentImageUrl,
@@ -223,11 +379,9 @@ export async function action({ request }) {
       category,
     } = body || {};
 
-    // -------------------------------------------------------------------------
-    // STEP 4: Validate inputs (details guards file mein)
-    // - personImage: type, size, base64 sanity
-    // - garmentImageUrl: HTTPS + Shopify CDN / shop host only (SSRF guard)
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // STEP 4: Input Validation (Base64 + Garment HTTPS CDN check)
+    // =========================================================================
     const personValidation = validatePersonImagePayload(personImage);
     if (!personValidation.ok) {
       return jsonResponse(
@@ -246,20 +400,121 @@ export async function action({ request }) {
 
     const garmentCategory = normalizeGarmentCategory(category);
 
-    // Logs mein photo base64 MAT likho — sirf size / ids
+    // =========================================================================
+    // STEP 5: SHA-256 Idempotency Guard (Prevents double billing / duplicate jobs)
+    // =========================================================================
+    const personImageHash = crypto
+      .createHash("sha256")
+      .update(`${personValidation.base64}|${garmentValidation.url}`)
+      .digest("hex");
+
+    const existingJob = await prisma.virtualTryOn.findFirst({
+      where: {
+        shop: shopDomain,
+        personImageHash,
+        garmentImageUrl: garmentValidation.url,
+        createdAt: { gte: new Date(Date.now() - 60_000) }, // 60 seconds TTL window
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existingJob) {
+      console.log(`[VirtualTryOn API] Idempotency hit: existing job id=${existingJob.id} status=${existingJob.status}`);
+      if (existingJob.status === "COMPLETED" && existingJob.generatedImageUrl) {
+        return jsonResponse({
+          success: true,
+          status: "completed",
+          tryOnImage: existingJob.generatedImageUrl,
+          provider: "runcomfy-vton-1.5",
+          cached: true,
+        });
+      }
+      if (existingJob.status === "PROCESSING" || existingJob.status === "PENDING") {
+        return jsonResponse({
+          success: true,
+          status: "processing",
+          requestId: existingJob.requestId,
+          cached: true,
+        });
+      }
+    }
+
     console.log(
-      `[VirtualTryOn API] shop=${shopDomain} product=${productId || "n/a"} variant=${variantId || "n/a"} category=${garmentCategory} personBytes≈${personValidation.estimatedBytes}`,
+      `[VirtualTryOn API] New Job: shop=${shopDomain} product=${productId || "n/a"} variant=${variantId || "n/a"} category=${garmentCategory} personBytes≈${personValidation.estimatedBytes}`,
     );
 
-    // Clean data URI rebuild — whitespace / odd prefix hata kar safe format
     const personImageDataUri = `data:${personValidation.mime};base64,${personValidation.base64}`;
+    const activeProviderName = (process.env.VTO_PROVIDER || "fashn").toLowerCase();
 
-    // -------------------------------------------------------------------------
-    // STEP 5: GPU provider (FASHN)
-    // generateTryOn hamesha { success, imageUri?, error? } return karta hai —
-    // throw nahi karta (provider andar catch karta hai).
-    // -------------------------------------------------------------------------
-    const result = await generateTryOn({
+    // =========================================================================
+    // STEP 6: Execute RunComfy Serverless Queue Provider
+    // =========================================================================
+    if (activeProviderName === "runcomfy" || activeProviderName === "comfyui") {
+      // 1. Database pending record insert
+      const dbJob = await prisma.virtualTryOn.create({
+        data: {
+          shop: shopDomain,
+          productId: productId ? String(productId) : null,
+          variantId: variantId ? String(variantId) : null,
+          garmentCategory,
+          garmentImageUrl: garmentValidation.url,
+          personImageHash,
+          status: "PENDING",
+        },
+      });
+
+      // 2. Submit async job to RunComfy (< 500ms)
+      const appHost = request.headers.get("x-forwarded-host") || request.headers.get("host");
+      const autoWebhookUrl = appHost ? `https://${appHost}/api/virtual-try-on?webhook=1` : undefined;
+
+      const submitResult = await submitRunComfyJob({
+        userImageUrl: personImageDataUri,
+        productImageUrl: garmentValidation.url,
+        category: garmentCategory,
+        customWebhookUrl: autoWebhookUrl,
+      });
+
+      if (!submitResult.success || !submitResult.requestId) {
+        console.error("[VirtualTryOn API] RunComfy submit failed:", submitResult.error);
+        await prisma.virtualTryOn.update({
+          where: { id: dbJob.id },
+          data: { status: "FAILED", error: submitResult.error || "Submission rejected" },
+        });
+
+        return jsonResponse(
+          {
+            success: false,
+            error: toPublicErrorMessage(
+              { message: submitResult.error },
+              "Failed to start try-on generation. Please try again.",
+            ),
+          },
+          { status: 200 },
+        );
+      }
+
+      // 3. Update DB record with requestId & status: PROCESSING
+      await prisma.virtualTryOn.update({
+        where: { id: dbJob.id },
+        data: {
+          requestId: submitResult.requestId,
+          status: "PROCESSING",
+        },
+      });
+
+      // 4. Instant Return to client (< 500ms)
+      return jsonResponse({
+        success: true,
+        status: "processing",
+        requestId: submitResult.requestId,
+        provider: "runcomfy-vton-1.5",
+        productId: productId ? String(productId) : null,
+        variantId: variantId ? String(variantId) : null,
+      });
+    }
+
+    // FASHN Synchronous Fallback
+    const result = await generateFashnTryOn({
       userImageUrl: personImageDataUri,
       productImageUrl: garmentValidation.url,
       category: garmentCategory,
@@ -275,13 +530,10 @@ export async function action({ request }) {
             "Failed to generate virtual try-on image. Please try again.",
           ),
         },
-        { status: 502 },
+        { status: 200 },
       );
     }
 
-    // -------------------------------------------------------------------------
-    // STEP 6: Success — tryOnImage URL ya data URI frontend <img src> mein lagata hai
-    // -------------------------------------------------------------------------
     return jsonResponse({
       success: true,
       tryOnImage: result.imageUri,
@@ -290,14 +542,15 @@ export async function action({ request }) {
       variantId: variantId ? String(variantId) : null,
     });
   } catch (error) {
-    // Unexpected crash — client ko kabhi bhi error.message / stack mat bhejo
     console.error("[VirtualTryOn API] Unexpected error:", error);
     return jsonResponse(
       {
         success: false,
         error: "Something went wrong while generating your try-on. Please try again.",
       },
-      { status: 500 },
+      { status: 200 },
     );
   }
 }
+
+

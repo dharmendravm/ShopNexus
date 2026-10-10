@@ -1,73 +1,20 @@
 /**
  * =============================================================================
  * FILE: virtual-try-on.js
- * ROLE: Storefront Virtual Try-On Widget (Lookfly Style Premium UI)
- * =============================================================================
- *
- * Yeh file kahan se aati hai?
- *   Theme App Extension → blocks/virtual-try-on.liquid ke schema mein
- *   `"javascript": "virtual-try-on.js"` configuration ke throug load hoti hai.
- *
- * Full Customer Experience Flow:
- *   1. Storefront par Product Page launch -> Main in-page button + Floating side tab render hote hain.
- *   2. User click karta hai -> Lookfly style floating card popup/drawer open hota hai.
- *   3. Step 1 (Upload): User photo select/drag-drop karta hai -> Client-side size & type validate
- *      hota hai -> Canvas compressed Data URL banta hai -> Preview dikhta hai.
- *   4. Step 2 (Loading): "Try it on virtually" click par animated progress bar (10% -> 100%)
- *      chalta hai, Garment + User photo side-by-side display hote hain, aur `/apps/virtual-try-on` Proxy API call hoti hai.
- *   5. Step 3 (Result): Result image render hoti hai -> User fullscreen lightbox expand,
- *      feedback (thumbs up/down), WhatsApp/Web Share, ya direct "Add to Cart" kar sakta hai.
- *
- * Production Guidelines:
- *   - Selective data attributes `data-vto-*` use kiye gaye hain.
- *   - Shopify App Proxy path `/apps/virtual-try-on` ke throug backend server se communicate karta hai.
- *   - Automatic memory cleanup through WeakMap for Theme Editor re-renders.
+ * ROLE: Storefront Virtual Try-On Widget (Lookfly / CleverCat UI)
  * =============================================================================
  */
 (function () {
   "use strict";
 
-  /**
-   * Storefront App Proxy route path.
-   * Shopify store network handles: `https://store.com/apps/virtual-try-on` -> backend app
-   * @constant {string}
-   */
   var APP_PROXY_TRY_ON_PATH = "/apps/virtual-try-on";
-
-  /**
-   * Max photo upload limit = 5 MB.
-   * @constant {number}
-   */
   var MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
-
-  /**
-   * Image compression target size (max width/height px).
-   * @constant {number}
-   */
   var MAX_IMAGE_EDGE_PX = 1280;
-
-  /**
-   * JPEG quality ratio (0.85 balance speed & visual clarity).
-   * @constant {number}
-   */
   var JPEG_QUALITY = 0.85;
-
-  /**
-   * Allowed uploaded image extensions.
-   * @constant {string[]}
-   */
   var ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 
-  /**
-   * Cleanup functions map per root widget for Shopify Theme Customizer compatibility.
-   * @type {WeakMap<Element, Function>}
-   */
   var widgetCleanups = new WeakMap();
 
-  /**
-   * Page load aur Shopify customizer events par saare Virtual Try-On widgets initializes karta hai.
-   * @returns {void}
-   */
   function initAllVirtualTryOnWidgets() {
     var roots = document.querySelectorAll("[data-vto-widget]");
     roots.forEach(function (widgetRoot) {
@@ -76,11 +23,6 @@
     });
   }
 
-  /**
-   * Existing widget instances and event listeners को remove karta hai (Memory leaks avoidance).
-   * @param {Element} widgetRoot
-   * @returns {void}
-   */
   function destroyWidget(widgetRoot) {
     var cleanup = widgetCleanups.get(widgetRoot);
     if (typeof cleanup === "function") {
@@ -89,40 +31,35 @@
     }
   }
 
-  /**
-   * Main setup function: Ek specific block widget ke HTML, CSS aur Events ko wireup karta hai.
-   * @param {Element} widgetRoot - `[data-vto-widget]` container
-   * @returns {void}
-   */
   function setupWidget(widgetRoot) {
-    // Liquid attributes extraction
     var blockId = widgetRoot.getAttribute("data-vto-block-id");
     var productId = widgetRoot.getAttribute("data-vto-product-id");
     var variantId = normalizeVariantId(widgetRoot.getAttribute("data-vto-variant-id"));
-    var garmentImageUrl = widgetRoot.getAttribute("data-vto-garment-image-url") || "";
+    var garmentImageUrl = (widgetRoot.getAttribute("data-vto-garment-image-url") || "").trim();
+    if (garmentImageUrl) {
+      garmentImageUrl = garmentImageUrl.replace(/^(https?:)+/i, "https:");
+      if (garmentImageUrl.startsWith("//")) {
+        garmentImageUrl = "https:" + garmentImageUrl;
+      }
+    }
     var garmentCategory = widgetRoot.getAttribute("data-vto-garment-category") || "tops";
-    var productTitle = widgetRoot.getAttribute("data-vto-product-title") || "Product";
 
-    // Modals and side tabs binding
     var modal = document.getElementById("vto-modal-" + blockId);
     var sideTab = document.querySelector('[data-vto-side-tab-id="' + blockId + '"]');
+    var lightbox = document.getElementById("vto-lightbox-" + blockId) || document.querySelector('[data-vto-lightbox-id="' + blockId + '"]');
 
     if (!modal) {
       console.warn("[VirtualTryOn] Modal element missing for block ID:", blockId);
       return;
     }
 
-    // Modal and Lightbox को Body tag level par relocate karna (Shopify CSS clipping protection)
     if (modal.parentElement !== document.body) {
       document.body.appendChild(modal);
     }
-
-    var lightbox = modal.querySelector("[data-vto-lightbox]");
     if (lightbox && lightbox.parentElement !== document.body) {
       document.body.appendChild(lightbox);
     }
 
-    // DOM Elements Queries
     var openButton = widgetRoot.querySelector("[data-vto-open-button]");
     var closeButton = modal.querySelector("[data-vto-close-button]");
     var backdrop = modal.querySelector("[data-vto-modal-backdrop]");
@@ -147,15 +84,10 @@
     var resultImage = modal.querySelector("[data-vto-result-image]");
     var expandButton = modal.querySelector("[data-vto-expand-button]");
     var retryButton = modal.querySelector("[data-vto-retry-button]");
-    var addToCartButton = modal.querySelector("[data-vto-add-to-cart-button]");
-    var whatsappShareBtn = modal.querySelector("[data-vto-share-whatsapp]");
-    var generalShareBtn = modal.querySelector("[data-vto-share-general]");
-    var feedbackButtons = modal.querySelectorAll("[data-vto-feedback]");
 
     var lightboxImage = lightbox ? lightbox.querySelector("[data-vto-lightbox-image]") : null;
     var lightboxCloseBtn = lightbox ? lightbox.querySelector("[data-vto-lightbox-close]") : null;
 
-    // Component State
     var selectedPersonImageDataUri = null;
     var isGenerating = false;
     var activeAbortController = null;
@@ -163,18 +95,12 @@
     var currentProgressPercent = 10;
     var listeners = [];
 
-    /**
-     * Helper to safely bind event listeners with dynamic memory cleanup tracking.
-     */
     function on(target, eventName, handler, options) {
       if (!target) return;
       target.addEventListener(eventName, handler, options);
       listeners.push({ target: target, eventName: eventName, handler: handler, options: options });
     }
 
-    /**
-     * Controls active wizard step visibility.
-     */
     function showStep(stepElement) {
       [stepUpload, stepLoading, stepResult].forEach(function (step) {
         if (step) step.classList.add("is-hidden");
@@ -182,27 +108,18 @@
       if (stepElement) stepElement.classList.remove("is-hidden");
     }
 
-    /**
-     * Display UI error notification banner.
-     */
     function showError(message) {
       if (!errorMessageEl) return;
       errorMessageEl.textContent = message;
       errorMessageEl.classList.remove("is-hidden");
     }
 
-    /**
-     * Clear error banner.
-     */
     function hideError() {
       if (!errorMessageEl) return;
       errorMessageEl.textContent = "";
       errorMessageEl.classList.add("is-hidden");
     }
 
-    /**
-     * Open Try-On Modal Card.
-     */
     function openModal() {
       modal.classList.remove("is-hidden");
       modal.setAttribute("aria-hidden", "false");
@@ -210,9 +127,6 @@
       showStep(stepUpload);
     }
 
-    /**
-     * Close Try-On Modal Card.
-     */
     function closeModal() {
       if (isGenerating && activeAbortController) {
         activeAbortController.abort();
@@ -224,9 +138,6 @@
       closeLightbox();
     }
 
-    /**
-     * Fullscreen Lightbox Open.
-     */
     function openLightbox() {
       if (!lightbox || !resultImage || !resultImage.src) return;
       if (lightboxImage) lightboxImage.src = resultImage.src;
@@ -234,18 +145,12 @@
       lightbox.setAttribute("aria-hidden", "false");
     }
 
-    /**
-     * Fullscreen Lightbox Close.
-     */
     function closeLightbox() {
       if (!lightbox) return;
       lightbox.classList.add("is-hidden");
       lightbox.setAttribute("aria-hidden", "true");
     }
 
-    /**
-     * Resets upload UI state.
-     */
     function resetUploadState() {
       selectedPersonImageDataUri = null;
       if (photoFileInput) photoFileInput.value = "";
@@ -258,9 +163,6 @@
       hideError();
     }
 
-    /**
-     * Updates loading button state during active GPU backend inference.
-     */
     function setGeneratingState(nextIsGenerating) {
       isGenerating = nextIsGenerating;
       if (generateButton) {
@@ -269,9 +171,6 @@
       if (openButton) openButton.disabled = nextIsGenerating;
     }
 
-    /**
-     * Progress bar timer animation (10% to ~90% while waiting for GPU API).
-     */
     function startProgressAnimation() {
       stopProgressAnimation();
       currentProgressPercent = 10;
@@ -279,7 +178,6 @@
 
       progressInterval = setInterval(function () {
         if (currentProgressPercent < 90) {
-          // Dynamic increment rate slowing down near 90%
           var step = currentProgressPercent < 50 ? 4 : (currentProgressPercent < 75 ? 2 : 1);
           currentProgressPercent += step;
           updateProgressUI(currentProgressPercent);
@@ -287,9 +185,6 @@
       }, 350);
     }
 
-    /**
-     * Stops progress bar timer interval.
-     */
     function stopProgressAnimation() {
       if (progressInterval) {
         clearInterval(progressInterval);
@@ -297,17 +192,11 @@
       }
     }
 
-    /**
-     * Sets progress bar fill width & text string.
-     */
     function updateProgressUI(percent) {
       if (progressFill) progressFill.style.width = percent + "%";
       if (progressText) progressText.textContent = percent + "%";
     }
 
-    /**
-     * Client-side uploaded file validation.
-     */
     function validateImageFile(file) {
       if (!file) return "Please choose a photo.";
       var fileName = file.name || "";
@@ -324,9 +213,6 @@
       return null;
     }
 
-    /**
-     * Canvas image downsizing and compression to JPEG base64 Data URI.
-     */
     function compressImageFile(file) {
       return new Promise(function (resolve, reject) {
         var objectUrl = URL.createObjectURL(file);
@@ -346,7 +232,7 @@
             var context = canvas.getContext("2d");
             if (!context) {
               URL.revokeObjectURL(objectUrl);
-              reject(new Error("Could not initialize canvas image compressor."));
+              reject(new Error("Could not process image."));
               return;
             }
 
@@ -373,9 +259,6 @@
       });
     }
 
-    /**
-     * Selected user file handler.
-     */
     async function handleSelectedFile(file) {
       hideError();
       var validationError = validateImageFile(file);
@@ -386,6 +269,10 @@
 
       try {
         selectedPersonImageDataUri = await compressImageFile(file);
+        try {
+          localStorage.setItem("vto_saved_user_photo", selectedPersonImageDataUri);
+        } catch (e) {}
+
         if (customerPhotoImage) customerPhotoImage.src = selectedPersonImageDataUri;
         if (loadingUserImage) loadingUserImage.src = selectedPersonImageDataUri;
         if (photoUploadPrompt) photoUploadPrompt.classList.add("is-hidden");
@@ -394,13 +281,87 @@
         if (generateButton) generateButton.disabled = false;
       } catch (err) {
         selectedPersonImageDataUri = null;
-        showError(err.message || "Failed to process photo. Please select another image.");
+        showError(err.message || "Failed to process photo.");
       }
     }
 
-    /**
-     * Primary backend API caller via App Proxy `/apps/virtual-try-on`.
-     */
+    async function pollForJobResult(requestId) {
+      setGeneratingState(true);
+      showStep(stepLoading);
+      startProgressAnimation();
+      activeAbortController = new AbortController();
+
+      var startTime = Date.now();
+      var maxWaitMs = 300000; // 5 minutes max wait
+      var pollDelayMs = 3500;
+
+      try {
+        while (Date.now() - startTime < maxWaitMs) {
+          await new Promise(function (resolve) { setTimeout(resolve, pollDelayMs); });
+
+          if (!activeAbortController || activeAbortController.signal.aborted) {
+            return;
+          }
+
+          if (pollDelayMs < 5000) {
+            pollDelayMs = Math.min(5000, pollDelayMs + 500);
+          }
+
+          var pollResponse = await fetch(APP_PROXY_TRY_ON_PATH, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ checkStatus: true, requestId: requestId }),
+            signal: activeAbortController.signal,
+          });
+
+          if (!pollResponse.ok) continue;
+
+          var pollData = await pollResponse.json().catch(function () { return {}; });
+          var finalTryOnUrl = pollData.tryOnImage || pollData.imageUri;
+
+          if (pollData.success && pollData.status === "completed" && finalTryOnUrl) {
+            stopProgressAnimation();
+            updateProgressUI(100);
+
+            try {
+              localStorage.removeItem("vto_active_job_" + productId);
+              localStorage.setItem("vto_cached_result_" + productId, JSON.stringify({ url: finalTryOnUrl, time: Date.now() }));
+            } catch (e) {}
+
+            setTimeout(function () {
+              if (resultImage) resultImage.src = finalTryOnUrl;
+              showStep(stepResult);
+            }, 300);
+            return;
+          }
+
+          if (pollData.status === "failed") {
+            try { localStorage.removeItem("vto_active_job_" + productId); } catch (e) {}
+            stopProgressAnimation();
+            showStep(stepUpload);
+            showError(pollData.error || "Virtual Try-On generation failed. Please try again.");
+            return;
+          }
+        }
+
+        try { localStorage.removeItem("vto_active_job_" + productId); } catch (e) {}
+        stopProgressAnimation();
+        showStep(stepUpload);
+        showError("Virtual Try-On request timed out. Please try again.");
+      } catch (err) {
+        stopProgressAnimation();
+        if (err && err.name === "AbortError") {
+          showStep(stepUpload);
+          return;
+        }
+        showStep(stepUpload);
+        showError("Network connection error. Please try again.");
+      } finally {
+        activeAbortController = null;
+        setGeneratingState(false);
+      }
+    }
+
     async function generateTryOn() {
       if (isGenerating) return;
       if (!selectedPersonImageDataUri) {
@@ -439,7 +400,7 @@
           showStep(stepUpload);
           showError(
             response.status === 404
-              ? "Virtual Try-On App Proxy is not reachable. Please check backend tunnel."
+              ? "Virtual Try-On App Proxy is not reachable."
               : "Server response error. Please try again."
           );
           return;
@@ -447,15 +408,30 @@
 
         var data = await response.json();
 
+        // 1. Direct synchronous success
         if (response.ok && data.success && data.tryOnImage) {
-          // Smooth finish to 100% progress
           stopProgressAnimation();
           updateProgressUI(100);
+
+          try {
+            localStorage.setItem("vto_cached_result_" + productId, JSON.stringify({ url: data.tryOnImage, time: Date.now() }));
+          } catch (e) {}
 
           setTimeout(function () {
             if (resultImage) resultImage.src = data.tryOnImage;
             showStep(stepResult);
           }, 300);
+          return;
+        }
+
+        // 2. Asynchronous job queued — Save active job in localStorage for page reload persistence
+        if (response.ok && data.success && (data.requestId || data.status === "processing")) {
+          var requestId = data.requestId;
+          try {
+            localStorage.setItem("vto_active_job_" + productId, JSON.stringify({ requestId: requestId, timestamp: Date.now() }));
+          } catch (e) {}
+
+          await pollForJobResult(requestId);
           return;
         }
 
@@ -476,75 +452,48 @@
       }
     }
 
-    /**
-     * Ajax cart checkout via `/cart/add.js`.
-     */
-    async function addCurrentVariantToCart() {
-      if (!variantId || !addToCartButton) return;
-
-      var originalText = addToCartButton.textContent;
-      addToCartButton.disabled = true;
-      addToCartButton.textContent = "Adding...";
-
+    function checkAndRestoreActiveState() {
       try {
-        var response = await fetch("/cart/add.js", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: [{ id: Number(variantId), quantity: 1 }],
-          }),
-        });
-
-        if (response.ok) {
-          addToCartButton.textContent = "Added to Cart!";
-          setTimeout(function () {
-            window.location.href = "/cart";
-          }, 450);
-          return;
+        // 1. Auto-restore saved customer photo if available
+        var savedUserPhoto = localStorage.getItem("vto_saved_user_photo");
+        if (savedUserPhoto && !selectedPersonImageDataUri) {
+          selectedPersonImageDataUri = savedUserPhoto;
+          if (customerPhotoImage) customerPhotoImage.src = selectedPersonImageDataUri;
+          if (loadingUserImage) loadingUserImage.src = selectedPersonImageDataUri;
+          if (photoUploadPrompt) photoUploadPrompt.classList.add("is-hidden");
+          if (customerPhotoPreview) customerPhotoPreview.classList.remove("is-hidden");
+          if (photoDropzone) photoDropzone.classList.add("has-preview");
+          if (generateButton) generateButton.disabled = false;
         }
 
-        window.location.href = "/cart/add?id=" + encodeURIComponent(variantId) + "&quantity=1";
-      } catch (err) {
-        window.location.href = "/cart/add?id=" + encodeURIComponent(variantId) + "&quantity=1";
-      } finally {
-        setTimeout(function () {
-          addToCartButton.disabled = false;
-          addToCartButton.textContent = originalText;
-        }, 1500);
+        // 2. Auto-resume active job if page was reloaded while processing (< 5 minutes old)
+        var rawJob = localStorage.getItem("vto_active_job_" + productId);
+        if (rawJob) {
+          var job = JSON.parse(rawJob);
+          var age = Date.now() - (job.timestamp || 0);
+          if (job.requestId && age < 300000) {
+            openModal();
+            pollForJobResult(job.requestId);
+            return;
+          } else {
+            localStorage.removeItem("vto_active_job_" + productId);
+          }
+        }
+
+        // 3. Restore cached result if available (< 1 hour old)
+        var rawCachedResult = localStorage.getItem("vto_cached_result_" + productId);
+        if (rawCachedResult) {
+          var cached = JSON.parse(rawCachedResult);
+          if (cached.url && (Date.now() - cached.time < 3600000)) {
+            if (resultImage) resultImage.src = cached.url;
+          }
+        }
+      } catch (e) {
+        console.warn("[VirtualTryOn] Active state restore notice:", e);
       }
     }
 
-    /**
-     * Social sharing - WhatsApp link.
-     */
-    function shareOnWhatsApp() {
-      var text = "Check out my Virtual Try-On look for " + productTitle + "! " + window.location.href;
-      var whatsappUrl = "https://api.whatsapp.com/send?text=" + encodeURIComponent(text);
-      window.open(whatsappUrl, "_blank");
-    }
-
-    /**
-     * Web Share API / Clipboard fallback link sharing.
-     */
-    function shareGeneral() {
-      if (navigator.share) {
-        navigator.share({
-          title: "Virtual Try-On - " + productTitle,
-          text: "Check out my Virtual Try-On look!",
-          url: window.location.href,
-        }).catch(function () {});
-      } else if (navigator.clipboard && window.location.href) {
-        navigator.clipboard.writeText(window.location.href).then(function () {
-          alert("Product link copied to clipboard!");
-        });
-      }
-    }
-
-    // =========================================================================
-    // Event Wiring & Event Handlers
-    // =========================================================================
-
-    // Open Modal Triggers (Main button & Floating side tab)
+    // Event Attachments
     on(openButton, "click", function (e) {
       e.preventDefault();
       openModal();
@@ -555,21 +504,21 @@
       openModal();
     });
 
-    // Close Modal Triggers
     on(closeButton, "click", closeModal);
     on(backdrop, "click", closeModal);
 
-    // Lightbox Triggers
-    on(expandButton, "click", openLightbox);
+    on(expandButton, "click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openLightbox();
+    });
     on(lightboxCloseBtn, "click", closeLightbox);
     if (lightbox) {
-      var lightboxBackdrop = lightbox.querySelector(".vto-fullscreen-lightbox");
       on(lightbox, "click", function (e) {
         if (e.target === lightbox) closeLightbox();
       });
     }
 
-    // Escape Key Handler for Modals & Lightbox
     on(document, "keydown", function (e) {
       if (e.key === "Escape" || e.keyCode === 27) {
         if (lightbox && !lightbox.classList.contains("is-hidden")) {
@@ -580,7 +529,6 @@
       }
     });
 
-    // Photo File Upload Handlers
     on(photoFileInput, "change", function (e) {
       var files = e.target && e.target.files;
       if (files && files[0]) handleSelectedFile(files[0]);
@@ -589,11 +537,11 @@
     on(changePhotoButton, "click", function (e) {
       e.preventDefault();
       e.stopPropagation();
+      try { localStorage.removeItem("vto_saved_user_photo"); } catch (err) {}
       resetUploadState();
       if (photoFileInput) photoFileInput.click();
     });
 
-    // Drag-and-drop feedback
     ["dragenter", "dragover"].forEach(function (evt) {
       on(photoDropzone, evt, function (e) {
         e.preventDefault();
@@ -615,35 +563,18 @@
       if (files && files[0]) handleSelectedFile(files[0]);
     });
 
-    // Generate Try-On Button Handler
     on(generateButton, "click", function () {
       generateTryOn();
     });
 
-    // Retry / Change Photo Link Handler
     on(retryButton, "click", function () {
       stopProgressAnimation();
       showStep(stepUpload);
     });
 
-    // Add to Cart Button Handler
-    on(addToCartButton, "click", function () {
-      addCurrentVariantToCart();
-    });
+    // Check active job or saved state on page load
+    checkAndRestoreActiveState();
 
-    // Share Buttons Handlers
-    on(whatsappShareBtn, "click", shareOnWhatsApp);
-    on(generalShareBtn, "click", shareGeneral);
-
-    // Feedback Rating Buttons (Thumbs Up / Down) Handlers
-    feedbackButtons.forEach(function (btn) {
-      on(btn, "click", function () {
-        feedbackButtons.forEach(function (b) { b.classList.remove("is-active"); });
-        btn.classList.add("is-active");
-      });
-    });
-
-    // WeakMap cleanup handler registration for theme live preview updates
     widgetCleanups.set(widgetRoot, function cleanup() {
       if (activeAbortController) activeAbortController.abort();
       stopProgressAnimation();
@@ -661,9 +592,6 @@
     });
   }
 
-  /**
-   * Helper function to extract numerical Shopify variant ID.
-   */
   function normalizeVariantId(rawVariantId) {
     if (!rawVariantId) return "";
     var value = String(rawVariantId).trim();
@@ -672,10 +600,6 @@
     if (/^\d+$/.test(value)) return value;
     return value;
   }
-
-  // ===========================================================================
-  // Initialization & Event Attachments
-  // ===========================================================================
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initAllVirtualTryOnWidgets);
