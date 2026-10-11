@@ -1,8 +1,31 @@
-# Shopify App Template - React Router
+# ShopNexus - AI Virtual Try-On Shopify App
 
-This is a template for building a [Shopify app](https://shopify.dev/docs/apps/getting-started) using [React Router](https://reactrouter.com/). It was forked from the [Shopify Remix app template](https://github.com/Shopify/shopify-app-template-remix) and converted to React Router.
+## ⚡ 1-Click Quick Setup (For New Clones)
 
-Rather than cloning this repo, follow the [Quick Start steps](https://github.com/Shopify/shopify-app-template-react-router#quick-start).
+Jab koi naya banda repo clone kare, sirf yeh commands chalayein:
+
+```bash
+# 1. Clone & Enter project
+git clone <repo_url>
+cd shop-nexus
+
+# 2. Automated 1-Click Setup (Env + Dependencies + Prisma + Local AI Model)
+npm run autosetup
+```
+
+### 🚀 Running the App (2 Terminals)
+
+```bash
+# Terminal 1 (Start Local AI VTON Server - Auto-detects Mac MPS / CUDA / CPU):
+npm run vton:start
+
+# Terminal 2 (Start Shopify App):
+npm run dev
+```
+
+---
+
+This is a template for building a [Shopify app](https://shopify.dev/docs/apps/getting-started) using [React Router](https://reactrouter.com/).
 
 Visit the [`shopify.dev` documentation](https://shopify.dev/docs/api/shopify-app-react-router) for more details on the React Router app package.
 
